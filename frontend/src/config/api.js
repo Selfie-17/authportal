@@ -28,6 +28,12 @@ export const API_ENDPOINTS = {
   // Profile endpoints
   PROFILE: `${API_BASE_URL}/api/profile`,
   PROFILE_PASSWORD: `${API_BASE_URL}/api/profile/change-password`,
+  // Teacher Evaluation Table endpoints
+  TEACHER_EVALUATIONS_UPLOAD: `${API_BASE_URL}/api/teacher/evaluations/upload`,
+  TEACHER_EVALUATIONS_UPLOAD_JSON: `${API_BASE_URL}/api/teacher/evaluations/upload-json`,
+  TEACHER_EVALUATIONS_GRID: `${API_BASE_URL}/api/teacher/evaluations/grid`,
+  TEACHER_EVALUATIONS_REPORT: `${API_BASE_URL}/api/teacher/evaluations/report`,
+  TEACHER_EVALUATIONS_FEEDBACK: `${API_BASE_URL}/api/teacher/evaluations/feedback`,
 };
 
 
