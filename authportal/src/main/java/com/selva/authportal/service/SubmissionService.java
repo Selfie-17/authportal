@@ -37,8 +37,8 @@ import java.util.stream.Collectors;
 public class SubmissionService {
 
     private static final Pattern STUDENT_ID_PATTERN = Pattern.compile("^[Nn]\\d{6}$");
-    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
-    private static final int MAX_FILES_PER_SUBMISSION = 10;
+    private static final long MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB per file
+    private static final int MAX_FILES_PER_SUBMISSION = 20;
 
     private final SubmissionRepository submissionRepository;
     private final SubmissionFileRepository submissionFileRepository;
@@ -221,17 +221,29 @@ public class SubmissionService {
 
     /**
      * Fetches raw submission entities for teacher ZIP generation.
+     * Ensures all submission files are fully loaded and initialized within the transaction.
      */
     @Transactional(readOnly = true)
     public List<Submission> getSubmissionsForZip(Integer week, YearLevel year, Integer section) {
         if (week == null) {
             throw new IllegalArgumentException("Week is required to generate a ZIP archive.");
         }
-        return submissionRepository.findAll(
+        List<Submission> submissions = submissionRepository.findAll(
                 com.selva.authportal.repository.SubmissionSpecification.withFilters(week, year, section, null)
         ).stream()
+                .distinct()
                 .sorted(Comparator.comparing(Submission::getStudentId))
                 .collect(Collectors.toList());
+
+        // Explicitly touch files within the transaction boundary so that
+        // background streaming threads have access to the complete collection.
+        for (Submission s : submissions) {
+            if (s.getFiles() != null) {
+                s.getFiles().forEach(f -> f.getOriginalFilename());
+            }
+        }
+
+        return submissions;
     }
 
 
@@ -270,7 +282,7 @@ public class SubmissionService {
     /**
      * Validates files against whitelist rules:
      * - Only .c and .pdf files permitted
-     * - File count within limits (1 to 10)
+     * - File count within limits (1 to 20)
      * - Non-empty, under max size
      * - Deep content inspection blocking executable binaries (PE, ELF, Mach-O, shell scripts)
      */
@@ -287,7 +299,7 @@ public class SubmissionService {
                 throw new FileValidationException("Cannot upload an empty file.");
             }
             if (file.getSize() > MAX_FILE_SIZE) {
-                throw new FileValidationException("File '" + file.getOriginalFilename() + "' exceeds 10MB limit.");
+                throw new FileValidationException("File '" + file.getOriginalFilename() + "' exceeds 20MB limit.");
             }
 
             String filename = file.getOriginalFilename();

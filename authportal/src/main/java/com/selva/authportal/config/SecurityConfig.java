@@ -7,6 +7,7 @@ import com.selva.authportal.security.oauth2.CustomOAuth2UserService;
 import com.selva.authportal.security.oauth2.CustomOidcUserService;
 import com.selva.authportal.security.oauth2.OAuth2AuthenticationFailureHandler;
 import com.selva.authportal.security.oauth2.OAuth2AuthenticationSuccessHandler;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -53,6 +54,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.FORWARD, DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/health",
                                 "/api/auth/register",

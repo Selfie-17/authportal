@@ -145,7 +145,12 @@ public class SubmissionController {
         String zipFilename = zipArchiveService.getArchiveFilename(week, section);
 
         org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody responseBody = outputStream -> {
-            zipArchiveService.generateSubmissionsZip(submissions, week, section, outputStream);
+            try {
+                zipArchiveService.generateSubmissionsZip(submissions, week, section, outputStream);
+            } catch (Exception e) {
+                log.error("Error during ZIP archive streaming: {}", e.getMessage(), e);
+                throw e;
+            }
         };
 
         return ResponseEntity.ok()

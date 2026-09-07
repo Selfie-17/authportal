@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -150,6 +151,50 @@ class SubmissionServiceTest {
     }
 
     @Test
+    @DisplayName("Should reject file exceeding 20MB limit")
+    void shouldRejectFileExceeding20MBLimit() {
+        MockMultipartFile oversizedFile = new MockMultipartFile(
+                "files",
+                "large_report.pdf",
+                "application/pdf",
+                new byte[1]
+        ) {
+            @Override
+            public long getSize() {
+                return (20L * 1024 * 1024) + 1; // 20MB + 1 byte
+            }
+        };
+
+        assertThatThrownBy(() -> submissionService.validateFiles(List.of(oversizedFile)))
+                .isInstanceOf(FileValidationException.class)
+                .hasMessageContaining("exceeds 20MB limit");
+    }
+
+    @Test
+    @DisplayName("Should reject submission with more than 20 files")
+    void shouldRejectSubmissionExceeding20Files() {
+        List<MultipartFile> files = new ArrayList<>();
+        for (int i = 1; i <= 21; i++) {
+            files.add(new MockMultipartFile("files", "file" + i + ".c", "text/x-c", "int main() {}".getBytes()));
+        }
+
+        assertThatThrownBy(() -> submissionService.validateFiles(files))
+                .isInstanceOf(FileValidationException.class)
+                .hasMessageContaining("Exceeded maximum allowed files per submission (20)");
+    }
+
+    @Test
+    @DisplayName("Should accept submission with exactly 20 files")
+    void shouldAcceptSubmissionWith20Files() {
+        List<MultipartFile> files = new ArrayList<>();
+        for (int i = 1; i <= 20; i++) {
+            files.add(new MockMultipartFile("files", "file" + i + ".c", "text/x-c", "int main() {}".getBytes()));
+        }
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> submissionService.validateFiles(files));
+    }
+
+    @Test
     @DisplayName("Should create initial submission with version 1")
     void shouldCreateInitialSubmission() {
         SubmissionRequest request = SubmissionRequest.builder()
@@ -230,5 +275,36 @@ class SubmissionServiceTest {
         assertThatThrownBy(() -> submissionService.loadFileForDownload(otherStudent, 10L, 1L))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("You do not have permission");
+    }
+
+    @Test
+    @DisplayName("Should fetch submissions and initialize files for ZIP archive")
+    void shouldFetchSubmissionsForZip() {
+        SubmissionFile file1 = SubmissionFile.builder().originalFilename("test.c").build();
+        Submission sub = Submission.builder()
+                .id(1L)
+                .studentId("N210001")
+                .week(1)
+                .year(YearLevel.E1)
+                .section(2)
+                .files(List.of(file1))
+                .build();
+
+        when(submissionRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                .thenReturn(List.of(sub));
+
+        List<Submission> result = submissionService.getSubmissionsForZip(1, YearLevel.E1, 2);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getFiles()).hasSize(1);
+        assertThat(result.get(0).getFiles().get(0).getOriginalFilename()).isEqualTo("test.c");
+    }
+
+    @Test
+    @DisplayName("Should throw exception when week is null for ZIP fetch")
+    void shouldThrowExceptionWhenWeekIsNullForZip() {
+        assertThatThrownBy(() -> submissionService.getSubmissionsForZip(null, YearLevel.E1, 2))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Week is required");
     }
 }

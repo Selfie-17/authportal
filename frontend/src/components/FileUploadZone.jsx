@@ -17,8 +17,8 @@ export default function FileUploadZone({ files, setFiles, error, setError }) {
     setError(null);
 
     const newFiles = [...files];
-    const maxFiles = 10;
-    const maxBytes = 10 * 1024 * 1024; // 10MB
+    const maxFiles = 20;
+    const maxBytes = 20 * 1024 * 1024; // 20MB
 
     for (let i = 0; i < incomingFiles.length; i++) {
       const file = incomingFiles[i];
@@ -30,7 +30,7 @@ export default function FileUploadZone({ files, setFiles, error, setError }) {
       }
 
       if (file.size > maxBytes) {
-        setError(`File "${file.name}" exceeds 10MB limit.`);
+        setError(`File "${file.name}" exceeds 20MB limit.`);
         return;
       }
 

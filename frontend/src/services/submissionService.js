@@ -130,9 +130,12 @@ export const submissionService = {
     if (section) params.append('section', section);
 
     const url = `${API_ENDPOINTS.TEACHER_DOWNLOAD_ZIP}?${params.toString()}`;
+    const headers = this.getHeaders();
+    headers['Accept'] = 'application/zip, application/octet-stream, */*';
+
     const response = await fetch(url, {
       method: 'GET',
-      headers: this.getHeaders(),
+      headers,
     });
 
     if (!response.ok) {

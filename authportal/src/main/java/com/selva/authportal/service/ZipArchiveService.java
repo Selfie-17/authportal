@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -42,16 +43,25 @@ public class ZipArchiveService {
     private final StorageService storageService;
 
     /**
-     * Streams a structured ZIP archive containing submissions directly to the provided OutputStream.
-     * Preserves the student ID directory for every student.
+     * Streams a compressed ZIP archive containing all matching lab submissions.
+     * Empty submissions lists produce a ZIP containing a descriptive README.txt notice.
      *
-     * @param submissions List of submissions matching teacher filter
+     * @param submissions Filtered list of student submissions
      * @param week        Selected week (1–12)
      * @param section     Selected section (1–6, or null for all sections)
      * @param outputStream Target output stream for the ZIP
      */
     public void generateSubmissionsZip(List<Submission> submissions, Integer week, Integer section, OutputStream outputStream) throws IOException {
-        try (ZipOutputStream zipOut = new ZipOutputStream(outputStream)) {
+        // Protect Tomcat's chunked output stream from being closed prematurely by ZipOutputStream.close(),
+        // which allows the servlet container to cleanly send the terminal chunk (0\r\n\r\n).
+        OutputStream nonClosingOut = new FilterOutputStream(outputStream) {
+            @Override
+            public void close() throws IOException {
+                flush();
+            }
+        };
+
+        try (ZipOutputStream zipOut = new ZipOutputStream(nonClosingOut)) {
             if (submissions == null || submissions.isEmpty()) {
                 // Write an informational notice entry so the downloaded ZIP is valid
                 ZipEntry emptyNotice = new ZipEntry("README.txt");
@@ -61,6 +71,8 @@ public class ZipArchiveService {
                 zipOut.write(msg.getBytes(StandardCharsets.UTF_8));
                 zipOut.closeEntry();
                 zipOut.finish();
+                zipOut.flush();
+                outputStream.flush();
                 return;
             }
 
@@ -96,8 +108,9 @@ public class ZipArchiveService {
                     // Avoid duplicate zip entry collisions
                     if (addedEntries.add(entryPath.toLowerCase())) {
                         ZipEntry zipEntry = new ZipEntry(entryPath);
-                        zipEntry.setSize(Files.size(filePath));
-                        zipEntry.setTime(file.getCreatedAt().toEpochMilli());
+                        if (file.getCreatedAt() != null) {
+                            zipEntry.setTime(file.getCreatedAt().toEpochMilli());
+                        }
                         zipOut.putNextEntry(zipEntry);
                         Files.copy(filePath, zipOut);
                         zipOut.closeEntry();
@@ -106,6 +119,8 @@ public class ZipArchiveService {
             }
 
             zipOut.finish();
+            zipOut.flush();
+            outputStream.flush();
         }
     }
 
