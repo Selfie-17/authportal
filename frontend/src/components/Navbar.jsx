@@ -64,6 +64,28 @@ export default function Navbar() {
 
 
           <div className="portal-user-badge">
+            <Link to="/profile" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }} title="View Profile">
+              {user?.profilePicture ? (
+                <img
+                  src={user.profilePicture}
+                  alt={user.name || 'User'}
+                  referrerPolicy="no-referrer"
+                  className="portal-user-avatar"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    if (e.currentTarget.nextElementSibling) {
+                      e.currentTarget.nextElementSibling.style.display = 'flex';
+                    }
+                  }}
+                />
+              ) : null}
+              <div
+                className="portal-user-avatar-placeholder"
+                style={{ display: user?.profilePicture ? 'none' : 'flex' }}
+              >
+                {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+              </div>
+            </Link>
             <div className="portal-user-info">
               <div className="portal-user-name">{user?.name || 'Authenticated User'}</div>
               <span className={`portal-user-role ${role.toLowerCase()}`}>

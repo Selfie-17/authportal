@@ -86,8 +86,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 user.setGoogleId(googleId);
             }
 
-            // Update profile picture if missing
-            if ((user.getProfilePicture() == null || user.getProfilePicture().isEmpty()) && picture != null) {
+            // Update profile picture with latest Google avatar
+            if (picture != null && !picture.trim().isEmpty()) {
                 user.setProfilePicture(picture);
             }
 

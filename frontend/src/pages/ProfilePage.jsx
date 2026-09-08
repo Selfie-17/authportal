@@ -107,13 +107,34 @@ export default function ProfilePage() {
       {/* Account Overview Card */}
       <div className="card" style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginBottom: '1.5rem' }}>
+          {user.profilePicture ? (
+            <img
+              src={user.profilePicture}
+              alt={user.name || 'User'}
+              referrerPolicy="no-referrer"
+              style={{
+                width: '64px',
+                height: '64px',
+                borderRadius: '50%',
+                objectFit: 'cover',
+                border: '3px solid #3b82f6',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+              }}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                if (e.currentTarget.nextElementSibling) {
+                  e.currentTarget.nextElementSibling.style.display = 'flex';
+                }
+              }}
+            />
+          ) : null}
           <div
             style={{
               width: '64px',
               height: '64px',
               borderRadius: '50%',
               background: 'linear-gradient(135deg, var(--color-primary), #6366f1)',
-              display: 'flex',
+              display: user.profilePicture ? 'none' : 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '1.75rem',
