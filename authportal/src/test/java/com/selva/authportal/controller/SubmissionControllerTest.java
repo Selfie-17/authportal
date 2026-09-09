@@ -225,7 +225,8 @@ class SubmissionControllerTest {
                         .param("section", "2"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Disposition", "attachment; filename=\"week-1-sec-2.zip\""))
-                .andExpect(header().string("Content-Type", "application/zip"));
+                .andExpect(header().string("Content-Type", "application/zip"))
+                .andExpect(header().exists("Content-Length"));
     }
 
     @Test

@@ -6,12 +6,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -52,16 +52,7 @@ public class ZipArchiveService {
      * @param outputStream Target output stream for the ZIP
      */
     public void generateSubmissionsZip(List<Submission> submissions, Integer week, Integer section, OutputStream outputStream) throws IOException {
-        // Protect Tomcat's chunked output stream from being closed prematurely by ZipOutputStream.close(),
-        // which allows the servlet container to cleanly send the terminal chunk (0\r\n\r\n).
-        OutputStream nonClosingOut = new FilterOutputStream(outputStream) {
-            @Override
-            public void close() throws IOException {
-                flush();
-            }
-        };
-
-        try (ZipOutputStream zipOut = new ZipOutputStream(nonClosingOut)) {
+        try (ZipOutputStream zipOut = new ZipOutputStream(outputStream)) {
             if (submissions == null || submissions.isEmpty()) {
                 // Write an informational notice entry so the downloaded ZIP is valid
                 ZipEntry emptyNotice = new ZipEntry("README.txt");
@@ -71,19 +62,26 @@ public class ZipArchiveService {
                 zipOut.write(msg.getBytes(StandardCharsets.UTF_8));
                 zipOut.closeEntry();
                 zipOut.finish();
-                zipOut.flush();
-                outputStream.flush();
                 return;
             }
 
             Set<String> addedEntries = new HashSet<>();
+            java.util.List<String> missingFiles = new java.util.ArrayList<>();
 
             for (Submission submission : submissions) {
-                Path studentDir = storageService.resolveSubmissionDirectory(
-                        submission.getWeek(),
-                        submission.getSection(),
-                        submission.getStudentId()
-                );
+                Path studentDir;
+                try {
+                    studentDir = storageService.resolveSubmissionDirectory(
+                            submission.getWeek(),
+                            submission.getSection(),
+                            submission.getStudentId()
+                    );
+                } catch (Exception e) {
+                    log.warn("Invalid submission directory for student {}: {}", submission.getStudentId(), e.getMessage());
+                    missingFiles.add(String.format("Student %s (Week %d, Sec %d): Directory error - %s",
+                            submission.getStudentId(), submission.getWeek(), submission.getSection(), e.getMessage()));
+                    continue;
+                }
 
                 if (submission.getFiles() == null || submission.getFiles().isEmpty()) {
                     continue;
@@ -93,6 +91,8 @@ public class ZipArchiveService {
                     Path filePath = studentDir.resolve(file.getStoredFilename());
                     if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
                         log.warn("Submission file not found on disk at {}. Skipping from ZIP.", filePath);
+                        missingFiles.add(String.format("Student %s: %s (file missing on server storage)",
+                                submission.getStudentId(), file.getOriginalFilename()));
                         continue;
                     }
 
@@ -118,9 +118,40 @@ public class ZipArchiveService {
                 }
             }
 
+            // If some or all files were missing on disk, add an informative notice entry
+            if (addedEntries.isEmpty()) {
+                ZipEntry emptyNotice = new ZipEntry("README.txt");
+                zipOut.putNextEntry(emptyNotice);
+                StringBuilder sb = new StringBuilder();
+                sb.append("No physical submission files were found on the server filesystem for Week ").append(week);
+                if (section != null) {
+                    sb.append(", Section ").append(section);
+                }
+                sb.append(".\n\n");
+                sb.append("Submissions registered in database: ").append(submissions.size()).append("\n");
+                if (!missingFiles.isEmpty()) {
+                    sb.append("Missing files detail:\n");
+                    for (String mf : missingFiles) {
+                        sb.append(" - ").append(mf).append("\n");
+                    }
+                }
+                sb.append("\nNote: In cloud deployments (e.g. Render Free Tier), local disk storage is ephemeral and is reset across redeployments or container restarts.\n");
+                zipOut.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+                zipOut.closeEntry();
+            } else if (!missingFiles.isEmpty()) {
+                // If some files were present but others missing, add a notice about the missing files
+                ZipEntry missingNotice = new ZipEntry("MISSING_FILES_NOTICE.txt");
+                zipOut.putNextEntry(missingNotice);
+                StringBuilder sb = new StringBuilder();
+                sb.append("Notice: Some files recorded in the database were not found on the server filesystem:\n\n");
+                for (String mf : missingFiles) {
+                    sb.append(" - ").append(mf).append("\n");
+                }
+                zipOut.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+                zipOut.closeEntry();
+            }
+
             zipOut.finish();
-            zipOut.flush();
-            outputStream.flush();
         }
     }
 

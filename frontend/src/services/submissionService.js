@@ -83,7 +83,12 @@ export const submissionService = {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to download file.');
+      let errorMsg = 'Failed to download file.';
+      try {
+        const data = await response.json();
+        if (data && data.message) errorMsg = data.message;
+      } catch (_) {}
+      throw new Error(errorMsg);
     }
 
     const blob = await response.blob();
@@ -159,7 +164,12 @@ export const submissionService = {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to download submissions ZIP archive.');
+      let errorMsg = 'Failed to download submissions ZIP archive.';
+      try {
+        const data = await response.json();
+        if (data && data.message) errorMsg = data.message;
+      } catch (_) {}
+      throw new Error(errorMsg);
     }
 
     // Extract filename from Content-Disposition header if available

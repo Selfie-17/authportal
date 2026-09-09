@@ -12,6 +12,7 @@ import com.selva.authportal.service.ZipArchiveService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,8 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.util.List;
 import java.util.Map;
@@ -156,27 +159,23 @@ public class SubmissionController {
      */
     @GetMapping("/teacher/download-zip")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> downloadSubmissionsZip(
+    public ResponseEntity<Resource> downloadSubmissionsZip(
             @RequestParam("week") Integer week,
             @RequestParam(value = "year", required = false) com.selva.authportal.model.YearLevel year,
             @RequestParam(value = "section", required = false) Integer section
-    ) {
+    ) throws IOException {
         List<com.selva.authportal.model.Submission> submissions = submissionService.getSubmissionsForZip(week, year, section);
         String zipFilename = zipArchiveService.getArchiveFilename(week, section);
 
-        org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody responseBody = outputStream -> {
-            try {
-                zipArchiveService.generateSubmissionsZip(submissions, week, section, outputStream);
-            } catch (Exception e) {
-                log.error("Error during ZIP archive streaming: {}", e.getMessage(), e);
-                throw e;
-            }
-        };
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        zipArchiveService.generateSubmissionsZip(submissions, week, section, baos);
+        byte[] zipBytes = baos.toByteArray();
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + zipFilename + "\"")
                 .contentType(MediaType.parseMediaType("application/zip"))
-                .body(responseBody);
+                .contentLength(zipBytes.length)
+                .body(new ByteArrayResource(zipBytes));
     }
 
 

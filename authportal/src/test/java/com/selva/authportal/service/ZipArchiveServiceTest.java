@@ -133,6 +133,36 @@ class ZipArchiveServiceTest {
     }
 
     @Test
+    @DisplayName("Should generate valid ZIP with notice when submissions exist but files are missing on disk")
+    void shouldGenerateNoticeZipWhenFilesMissingOnDisk() throws IOException {
+        Submission sub = Submission.builder()
+                .id(10L)
+                .studentId("N210750")
+                .week(1)
+                .year(YearLevel.E1)
+                .section(1)
+                .files(List.of(
+                        SubmissionFile.builder().originalFilename("report.pdf").storedFilename("missing_report.pdf").createdAt(Instant.now()).fileType(FileType.PDF_REPORT).build()
+                ))
+                .build();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        zipArchiveService.generateSubmissionsZip(List.of(sub), 1, 1, baos);
+
+        byte[] zipBytes = baos.toByteArray();
+        assertThat(zipBytes).isNotEmpty();
+
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry = zis.getNextEntry();
+            assertThat(entry).isNotNull();
+            assertThat(entry.getName()).isEqualTo("README.txt");
+            String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(content).contains("No physical submission files were found");
+            assertThat(content).contains("N210750");
+        }
+    }
+
+    @Test
     @DisplayName("Should format archive filenames correctly")
     void shouldFormatArchiveFilenames() {
         assertThat(zipArchiveService.getArchiveFilename(1, 2)).isEqualTo("week-1-sec-2.zip");
