@@ -39,5 +39,6 @@ build/
 *.log
 
 ### Upload Storage ###
-storage/
+/storage/
+!**/src/**/storage/
 

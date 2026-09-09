@@ -10,9 +10,9 @@ frontend/node_modules/
 frontend/dist/
 frontend/.env
 frontend/.env.*
-!frontend/.env.example
-storage/
-authportal/storage/
+/storage/
+/authportal/storage/
+!**/src/**/storage/
 
 # Google Cloud Service Account Keys (NEVER commit secrets to source control)
 *gcp*.json
