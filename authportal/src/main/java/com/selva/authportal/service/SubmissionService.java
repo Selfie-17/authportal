@@ -20,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -204,6 +205,38 @@ public class SubmissionService {
         Submission submission = submissionRepository.findByIdAndUserId(submissionId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Submission not found with id: " + submissionId));
         return SubmissionResponse.fromEntity(submission);
+    }
+
+    /**
+     * Deletes a submission by ID.
+     * Enforces ownership: students may only delete their own submissions.
+     * Admins are permitted to delete any submission.
+     * Cleans up stored files on disk and removes the database record.
+     */
+    @Transactional
+    public void deleteSubmission(User currentUser, Long submissionId) {
+        Submission submission = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Submission not found with id: " + submissionId));
+
+        if (currentUser.getRole() == Role.STUDENT && !submission.getUser().getId().equals(currentUser.getId())) {
+            throw new AccessDeniedException("You do not have permission to delete this submission.");
+        }
+
+        // Clean up files on disk
+        try {
+            Path submissionDir = storageService.resolveSubmissionDirectory(
+                    submission.getWeek(),
+                    submission.getSection(),
+                    submission.getStudentId()
+            );
+            storageService.deleteDirectoryContents(submissionDir);
+            Files.deleteIfExists(submissionDir);
+        } catch (IOException e) {
+            log.warn("Failed to clean up submission directory for id {}: {}", submissionId, e.getMessage());
+        }
+
+        submissionRepository.delete(submission);
+        log.info("User {} deleted submission id {} for student {}", currentUser.getEmail(), submissionId, submission.getStudentId());
     }
 
     /**

@@ -98,6 +98,26 @@ export const submissionService = {
   },
 
   /**
+   * Deletes a submission by ID.
+   * @param {number|string} submissionId
+   */
+  async deleteSubmission(submissionId) {
+    const url = `${API_ENDPOINTS.SUBMISSIONS}/${submissionId}`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.message || 'Failed to delete submission.');
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  },
+
+  /**
    * Teacher filter query.
    */
   async filterTeacherSubmissions({ week, year, section, studentId } = {}) {

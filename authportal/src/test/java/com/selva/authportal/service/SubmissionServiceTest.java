@@ -4,6 +4,7 @@ import com.selva.authportal.dto.SubmissionRequest;
 import com.selva.authportal.dto.SubmissionResponse;
 import com.selva.authportal.exception.FileValidationException;
 import com.selva.authportal.exception.InvalidSubmissionException;
+import com.selva.authportal.exception.ResourceNotFoundException;
 import com.selva.authportal.model.*;
 import com.selva.authportal.repository.SubmissionFileRepository;
 import com.selva.authportal.repository.SubmissionRepository;
@@ -20,6 +21,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -307,4 +309,79 @@ class SubmissionServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Week is required");
     }
+
+    @Test
+    @DisplayName("Should allow student to delete their own submission and clean up disk files")
+    void shouldAllowStudentToDeleteOwnSubmission() throws IOException {
+        Path subDir = storageService.resolveSubmissionDirectory(1, 2, "N210921");
+        Files.createDirectories(subDir);
+        Files.writeString(subDir.resolve("program.c"), "int main(){}");
+
+        Submission submission = Submission.builder()
+                .id(10L)
+                .user(studentUser)
+                .studentId("N210921")
+                .week(1)
+                .section(2)
+                .year(YearLevel.E1)
+                .build();
+
+        when(submissionRepository.findById(10L)).thenReturn(Optional.of(submission));
+
+        submissionService.deleteSubmission(studentUser, 10L);
+
+        verify(submissionRepository, times(1)).delete(submission);
+        assertThat(Files.exists(subDir.resolve("program.c"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("Should prevent student from deleting another student's submission")
+    void shouldPreventStudentFromDeletingOthersSubmission() {
+        User otherStudent = User.builder().id(99L).role(Role.STUDENT).email("other@rguktn.ac.in").build();
+        Submission submission = Submission.builder()
+                .id(10L)
+                .user(studentUser)
+                .studentId("N210921")
+                .week(1)
+                .section(2)
+                .build();
+
+        when(submissionRepository.findById(10L)).thenReturn(Optional.of(submission));
+
+        assertThatThrownBy(() -> submissionService.deleteSubmission(otherStudent, 10L))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("You do not have permission to delete this submission.");
+
+        verify(submissionRepository, never()).delete(any(Submission.class));
+    }
+
+    @Test
+    @DisplayName("Should allow admin to delete any student's submission")
+    void shouldAllowAdminToDeleteAnySubmission() {
+        User adminUser = User.builder().id(999L).role(Role.ADMIN).email("admin@rguktn.ac.in").build();
+        Submission submission = Submission.builder()
+                .id(10L)
+                .user(studentUser)
+                .studentId("N210921")
+                .week(1)
+                .section(2)
+                .build();
+
+        when(submissionRepository.findById(10L)).thenReturn(Optional.of(submission));
+
+        submissionService.deleteSubmission(adminUser, 10L);
+
+        verify(submissionRepository, times(1)).delete(submission);
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when deleting non-existent submission")
+    void shouldThrowWhenDeletingNonExistentSubmission() {
+        when(submissionRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> submissionService.deleteSubmission(studentUser, 999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Submission not found with id: 999");
+    }
 }
+

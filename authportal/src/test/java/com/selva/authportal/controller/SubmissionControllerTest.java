@@ -36,7 +36,9 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -225,5 +227,17 @@ class SubmissionControllerTest {
                 .andExpect(header().string("Content-Disposition", "attachment; filename=\"week-1-sec-2.zip\""))
                 .andExpect(header().string("Content-Type", "application/zip"));
     }
+
+    @Test
+    @DisplayName("Should delete submission and return success response")
+    void shouldDeleteSubmission() throws Exception {
+        doNothing().when(submissionService).deleteSubmission(any(), eq(10L));
+
+        mockMvc.perform(delete("/api/submissions/10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Submission deleted successfully."));
+    }
 }
+
 

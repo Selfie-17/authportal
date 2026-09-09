@@ -14,6 +14,7 @@ export default function StudentSubmissionPage() {
   const [submissions, setSubmissions] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
 
@@ -101,6 +102,26 @@ export default function StudentSubmissionPage() {
       alert('Failed to download file: ' + err.message);
     }
   };
+
+  const handleDeleteSubmission = async (submissionId, weekNum) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently delete your submission for Week ${weekNum}? This will delete all uploaded files and remove your submission record.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(submissionId);
+      setErrorMessage(null);
+      await submissionService.deleteSubmission(submissionId);
+      setSuccessMessage(`Submission for Week ${weekNum} has been permanently deleted.`);
+      await loadHistory();
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to delete submission. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
 
   return (
     <div className="portal-layout">
@@ -210,7 +231,7 @@ export default function StudentSubmissionPage() {
               </div>
             </div>
 
-            {existingSubmission && (
+            {/* {existingSubmission && (
               <div className="revision-banner updated">
                 <span>ℹ️</span>
                 <div>
@@ -221,7 +242,8 @@ export default function StudentSubmissionPage() {
                   now will increment the revision counter and replace previously stored files.
                 </div>
               </div>
-            )}
+            )} */}
+
 
             <FileUploadZone
               files={files}
@@ -281,6 +303,7 @@ export default function StudentSubmissionPage() {
                     <th>Status</th>
                     <th>Submitted Files</th>
                     <th>Submitted At</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -329,6 +352,17 @@ export default function StudentSubmissionPage() {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-delete-submission"
+                          onClick={() => handleDeleteSubmission(sub.id, sub.week)}
+                          disabled={deletingId === sub.id}
+                          title={`Delete submission for Week ${sub.week}`}
+                        >
+                          {deletingId === sub.id ? 'Deleting...' : '🗑️ Delete'}
+                        </button>
                       </td>
                     </tr>
                   ))}

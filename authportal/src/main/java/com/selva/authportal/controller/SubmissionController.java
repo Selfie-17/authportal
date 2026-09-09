@@ -1,5 +1,6 @@
 package com.selva.authportal.controller;
 
+import com.selva.authportal.dto.ApiResponse;
 import com.selva.authportal.dto.SubmissionRequest;
 import com.selva.authportal.dto.SubmissionResponse;
 import com.selva.authportal.exception.ResourceNotFoundException;
@@ -92,6 +93,25 @@ public class SubmissionController {
         SubmissionResponse response = submissionService.getMySubmissionById(currentUser.getId(), id);
         return ResponseEntity.ok(response);
     }
+
+    /**
+     * Deletes a submission owned by the current student (or by an administrator).
+     * Cleans up the database record and stored files on disk.
+     */
+    @DeleteMapping({"/{id}", "/my/{id}"})
+    @PreAuthorize("hasAnyRole('STUDENT', 'ADMIN')")
+    public ResponseEntity<ApiResponse> deleteSubmission(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable("id") Long id
+    ) {
+        User currentUser = resolveCurrentUser(userDetails);
+        submissionService.deleteSubmission(currentUser, id);
+        return ResponseEntity.ok(ApiResponse.builder()
+                .success(true)
+                .message("Submission deleted successfully.")
+                .build());
+    }
+
 
     /**
      * Downloads an individual file from a submission.

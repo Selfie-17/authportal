@@ -1,67 +1,189 @@
-# RGUKTN Auth Portal — Backend API
+# RGUKTN Academic & Authentication Portal
 
-A production-grade, secure authentication backend built with **Java 21**, **Spring Boot**, **Spring Security**, **Google OAuth 2.0 / OpenID Connect**, **JWT**, **Spring Data JPA / Hibernate**, and **MySQL**.
+A production-grade, secure full-stack platform built with **Java 21**, **Spring Boot**, **Spring Security**, **Google OAuth 2.0 / OpenID Connect**, **JWT**, **Spring Data JPA / Hibernate**, **MySQL**, **Flyway**, and a modern **React 19 + Vite** frontend.
 
-The backend exposes a stateless REST API designed to power a modern React frontend.
+Designed specifically for academic environments, the portal provides institutional authentication, automated role-based access control, laboratory assignment submission and revision management, teacher evaluation grids with report ingestion, and an administrative console.
 
 ---
 
 ## Table of Contents
-1. [Key Features](#key-features)
-2. [Role Resolution & Business Rules](#role-resolution--business-rules)
+
+1. [Key Features & Capabilities](#key-features--capabilities)
+   - [Authentication & Role Resolution](#1-authentication--role-resolution)
+   - [Student Lab Submission Engine](#2-student-lab-submission-engine)
+   - [Teacher Evaluation & Lab Oversight](#3-teacher-evaluation--lab-oversight)
+   - [Administrative Control Console](#4-administrative-control-console)
+   - [User Profile Management](#5-user-profile-management)
+2. [Project Structure](#project-structure)
 3. [Architecture & Authentication Flows](#architecture--authentication-flows)
-   - [Local Email & Password Flow](#local-email--password-flow)
+   - [Local Registration & Login Flow](#local-registration--login-flow)
    - [Google OAuth 2.0 / OIDC Flow (Zero-JWT in URL)](#google-oauth-20--oidc-flow-zero-jwt-in-url)
 4. [Tech Stack](#tech-stack)
-5. [Prerequisites](#prerequisites)
-6. [Environment Variables](#environment-variables)
-7. [Google Cloud OAuth 2.0 Setup](#google-cloud-oauth-20-setup)
-8. [Database Setup & Migrations](#database-setup--migrations)
+5. [Database Schema & Migrations](#database-schema--migrations)
+6. [File Storage Architecture](#file-storage-architecture)
+7. [Environment Variables](#environment-variables)
+8. [Google Cloud OAuth 2.0 Setup](#google-cloud-oauth-20-setup)
 9. [Running Locally](#running-locally)
-10. [Running Tests](#running-tests)
-11. [API Endpoints Reference](#api-endpoints-reference)
+   - [1. Database Setup (Docker Compose or Native)](#1-database-setup-docker-compose-or-native)
+   - [2. Backend Setup & Run](#2-backend-setup--run)
+   - [3. Frontend Setup & Run](#3-frontend-setup--run)
+10. [Running Automated Tests](#running-automated-tests)
+11. [REST API Reference](#rest-api-reference)
+    - [Authentication Endpoints (`/api/auth`)](#authentication-endpoints-apiauth)
+    - [Profile Endpoints (`/api/profile`)](#profile-endpoints-apiprofile)
+    - [Submission Endpoints (`/api/submissions`)](#submission-endpoints-apisubmissions)
+    - [Teacher Evaluation Endpoints (`/api/teacher/evaluations`)](#teacher-evaluation-endpoints-apiteacherevaluations)
+    - [Admin Console Endpoints (`/api/admin`)](#admin-console-endpoints-apiadmin)
+    - [Health & Diagnostics](#health--diagnostics)
 12. [Production Deployment Guide](#production-deployment-guide)
 
 ---
 
-## Key Features
+## Key Features & Capabilities
 
-* **Dual Authentication**: Seamlessly supports both Google OAuth 2.0 / OIDC and traditional Email/Password authentication.
-* **Server-Side Role Determination**: Eliminates client privilege escalation. Roles (`STUDENT`, `TEACHER`, `ADMIN`) are strictly determined server-side from institutional email addresses.
-* **Student Institutional Email Regex**: Strictly validates student identifiers via `^[Nn]\d{6}@rguktn\.ac\.in$`.
-* **Explicit Teacher Eligibility**: Prevents unauthorized institutional staff from claiming the `TEACHER` role through configurable allowlisting.
-* **ADMIN Protection**: The `ADMIN` role can never be self-selected or created through public registration. Existing `ADMIN` privileges are preserved across all login mechanisms (including OAuth).
-* **Zero JWT in Redirect URL**: On successful Google OAuth authentication, the backend issues a short-lived (60s), single-use exchange code to the frontend callback. The frontend then exchanges this code via a POST request to obtain the JWT in the JSON body, preventing leakage through browser history, referrer headers, or proxy logs.
+### 1. Authentication & Role Resolution
+
+* **Dual Authentication**: Seamlessly supports both Google OAuth 2.0 / OpenID Connect and traditional email/password credentials with BCrypt password hashing.
+* **Server-Side Role Determination**: Eliminates client privilege escalation. Roles (`STUDENT`, `TEACHER`, `ADMIN`) are strictly determined server-side from institutional email addresses:
+  * **Student Regex Validation**: Matches `^[Nn]\d{6}@rguktn\.ac\.in$` (e.g., `N210921@rguktn.ac.in`).
+  * **Teacher Allowlist**: Restricts `TEACHER` roles to explicitly approved institutional faculty emails via `TEACHER_ALLOWED_EMAILS`.
+  * **Admin Protection**: The `ADMIN` role can never be self-selected or created via public registration. Existing `ADMIN` privileges are preserved across all login mechanisms.
+* **Zero-JWT in URL (Single-Use Exchange Code)**: On Google OAuth redirect, the backend issues a short-lived (60s), single-use exchange code to the frontend callback. The frontend exchanges this code via a secure POST request to obtain the JWT in the JSON body, preventing token leakage through browser history, referrer headers, or proxy logs.
 * **Safe Account Linking**: If a user previously registered via email/password logs in with a verified Google institutional account, the backend links the Google identity safely without downgrading roles or duplicating user records.
-* **Zero Hard-Coded Secrets**: Configuration is 100% environment-driven. No secret fallbacks or credentials are committed to the codebase.
-* **Flyway Migrations**: Automated database schema migrations ensuring zero destructive DDL in production.
+* **Stateless JWT Security**: HMAC-SHA256 tokens carry subject identity, roles, and user metadata for stateless session verification.
 
 ---
 
-## Role Resolution & Business Rules
+### 2. Student Lab Submission Engine
 
-| Role | Eligibility Criteria | Registration Mechanism |
-| :--- | :--- | :--- |
-| **`STUDENT`** | Email matching `^[Nn]\d{6}@rguktn\.ac\.in$` (e.g., `N210921@rguktn.ac.in`, `n210921@rguktn.ac.in`, `N220001@rguktn.ac.in`). | Public `POST /api/auth/register` or Google OAuth |
-| **`TEACHER`** | Email ending with `@rguktn.ac.in` and present on the verified teacher allowlist (`TEACHER_ALLOWED_EMAILS`). | Public `POST /api/auth/register` or Google OAuth |
-| **`ADMIN`** | Granted strictly through controlled server-side seeding / direct DB management. | **Never via public endpoints.** Preserved during OAuth logins. |
+* **Auto-Derived Student ID**: Automatically pre-fills the student ID from the user's institutional email (e.g. `n210921@rguktn.ac.in` $\rightarrow$ `N210921`) while allowing manual correction if necessary.
+* **Multi-File Uploads**: Supports uploading `.c` source code files and `.pdf` lab reports for specific Week (1–12), Year Level (E1–E4), and Section (1–6).
+* **Deep Content & Executable Inspection**:
+  * Blocks binary executables even if disguised with `.c` or `.pdf` extensions (inspects magic bytes for Windows PE `MZ`, Linux ELF `\x7FELF`, and Mach-O headers).
+  * Validates `%PDF-` file signature for PDF reports.
+  * Enforces maximum 20MB per file and up to 20 files per submission.
+* **Revision Tracking & Duplicate Handling**: When a student re-submits for the same week and section, the system increments the revision counter (`v1` $\rightarrow$ `v2`...), cleans up old files, and stores new files under the same directory.
+* **Submission Deletion**:
+  * Students can permanently delete their own submissions either directly from the "Existing submission detected" warning banner or from their submission history table.
+  * **Strict Authorization**: Students may only delete their own submissions (`403 Forbidden` if attempting to delete another student's submission).
+  * **Physical Purge**: Deletion removes the submission record and all associated file records from MySQL and permanently removes the student's submission directory from disk.
+* **Secure File Downloads**: Authenticated students can download individual submitted files from their history.
 
-### Institutional Email Rules:
-* All accounts **must** belong to the `@rguktn.ac.in` domain.
-* Non-institutional accounts (e.g. `@gmail.com`, `@outlook.com`) are rejected immediately with `400 Bad Request`.
-* Student accounts allow case-insensitive prefix `N` or `n` followed by exactly 6 digits.
+---
+
+### 3. Teacher Evaluation & Lab Oversight
+
+* **Multi-Criteria Submission Filtering**: Search and filter student submissions across Week (1–12), Year Level (E1–E4), Section (1–6), and Student ID.
+* **Structured ZIP Batch Downloads**: Stream an entire section or week's submissions as a ZIP archive preserving clean directory hierarchies:
+  ```text
+  week-1-sec-2.zip
+  └── week-1-sec-2/
+      ├── N210001/
+      │   ├── main.c
+      │   └── report.pdf
+      └── N210002/
+          ├── solution.c
+          └── report.pdf
+  ```
+* **Interactive Evaluation Grid**:
+  * Dynamic student rows (one row per Student ID).
+  * Dynamic week columns generated from uploaded evaluation data.
+  * Displays criteria scores, total scores, final scores, and assessments.
+* **Report Ingestion (JSON & CSV/Excel)**:
+  * Ingest evaluation reports produced by grading tools or automated rubrics.
+  * Automatically extracts standard rubric criteria: *Objective of the Lab*, *Problem Understanding*, *Logic/Approach Used*, *Important Variables*, *What I Observed*, *Total Score*, and *Overall Assessment*.
+* **Human Teacher Feedback**:
+  * Teachers can enter manual feedback comments and toggle review status for each student and week.
+  * Teacher feedback is maintained independently and preserved across re-evaluations.
+
+---
+
+### 4. Administrative Control Console
+
+* **System Overview & Metrics**: Real-time KPI cards displaying Total Users, Students, Teachers, Administrators, and Total Submissions.
+* **User Management**:
+  * Search users by name or email with role filters (`ALL`, `STUDENT`, `TEACHER`, `ADMIN`).
+  * Direct user provisioning with administrative role assignment.
+  * Role modification with safety guards preventing demotion of the final administrator.
+  * Account status toggle (Enable/Disable) preventing admins from disabling their own account or disabling the final administrator.
+* **Submission Oversight**: View all portal submissions across all students with filters, and permanently delete submissions and files if required.
+
+---
+
+### 5. User Profile Management
+
+* View user account details, institutional email, current role, and authentication provider.
+* Update personal details (e.g. display name).
+* Secure password change with verification of current password and confirmation checks.
+
+---
+
+## Project Structure
+
+```text
+authportal/
+├── .env.example                     # Root environment configuration template
+├── docker-compose.yml               # MySQL 8 service for local development
+├── render.yaml                      # Render Blueprint deployment definition
+├── storage/                         # Local filesystem storage root for submissions
+│   └── submissions/
+│       └── week-{w}/
+│           └── sec-{s}/
+│               └── {studentId}/     # Physical submission files
+│
+├── authportal/                      # Spring Boot 4 / Java 21 Backend
+│   ├── Dockerfile                   # Multi-stage Docker container build
+│   ├── pom.xml                      # Maven dependencies and build plugins
+│   └── src/
+│       ├── main/
+│       │   ├── java/com/selva/authportal/
+│       │   │   ├── AuthportalApplication.java
+│       │   │   ├── config/          # SecurityConfig, PasswordEncoderConfig, WebConfig
+│       │   │   ├── controller/      # REST API Controllers (Auth, Submission, Teacher, Admin, Profile)
+│       │   │   ├── dto/             # Request / Response DTO records and classes
+│       │   │   ├── exception/       # GlobalExceptionHandler, Custom domain exceptions
+│       │   │   ├── model/           # JPA Entities (User, Submission, SubmissionFile, StudentEvaluation, TeacherFeedback)
+│       │   │   ├── repository/      # Spring Data JPA Repositories & Specifications
+│       │   │   ├── security/        # JWT AuthenticationFilter, CustomUserDetails, EmailRoleResolver
+│       │   │   │   └── oauth2/      # OAuth2SuccessHandler, CustomOAuth2UserService
+│       │   │   └── service/         # Core Services (Auth, Submission, Storage, Evaluation, Admin, ZipArchive, Profile)
+│       │   └── resources/
+│       │       ├── application.properties
+│       │       └── db/migration/    # Flyway SQL migrations (V1 to V4)
+│       └── test/                    # 121+ Automated unit, integration, and security tests
+│
+└── frontend/                        # React 19 + Vite Frontend SPA
+    ├── package.json                 # Frontend scripts and dependencies
+    ├── vite.config.js               # Vite configuration
+    └── src/
+        ├── App.jsx                  # Client routing and ProtectedRoute role guards
+        ├── main.jsx                 # React root entry point
+        ├── components/              # Shared components (Navbar, FileUploadZone)
+        ├── config/                  # API endpoints and base URL configuration
+        ├── pages/                   # Application Pages
+        │   ├── LoginPage.jsx
+        │   ├── RegisterPage.jsx
+        │   ├── OAuthCallbackPage.jsx
+        │   ├── StudentSubmissionPage.jsx
+        │   ├── TeacherSubmissionsPage.jsx
+        │   ├── AdminDashboardPage.jsx
+        │   └── ProfilePage.jsx
+        ├── services/                # API client services (authService, submissionService, adminService, etc.)
+        └── styles/                  # Clean modern CSS stylesheets (portal.css, auth.css, index.css)
+```
 
 ---
 
 ## Architecture & Authentication Flows
 
-### Local Email & Password Flow
+### Local Registration & Login Flow
+
 ```text
 React Client                               Spring Boot Backend                          MySQL Database
     │                                              │                                          │
     ├─── POST /api/auth/register ─────────────────►│                                          │
     │    (name, email, password)                   ├── Normalize email                        │
-    │    [NO role accepted]                        ├── Validate institutional email domain    │
+    │    [NO role accepted from client]            ├── Validate institutional email domain    │
     │                                              ├── Resolve Role (STUDENT / TEACHER)       │
     │                                              ├── Verify uniqueness ────────────────────►│
     │                                              ├── BCrypt.hash(password)                  │
@@ -72,12 +194,13 @@ React Client                               Spring Boot Backend                  
     ├─── POST /api/auth/login ────────────────────►│                                          │
     │    (email, password)                         ├── Query user by email ──────────────────►│
     │                                              ├── BCrypt.matches()                       │
-    │                                              ├── Check enabled status                   │
+    │                                              ├── Verify enabled status                  │
     │                                              ├── Generate JWT                           │
     │◄── 200 OK (AuthResponse with JWT) ───────────┤                                          │
 ```
 
 ### Google OAuth 2.0 / OIDC Flow (Zero-JWT in URL)
+
 ```text
 Browser / React Client                  Spring Boot OAuth Backend                   Google OAuth 2.0
     │                                              │                                       │
@@ -91,11 +214,11 @@ Browser / React Client                  Spring Boot OAuth Backend               
     │                                              ├── Validate @rguktn.ac.in domain       │
     │                                              ├── If existing user: Preserve Role     │
     │                                              │   If new user: Resolve Role           │
-    │                                              ├── Provision/Link user in DB           │
+    │                                              ├── Provision or Link user in DB        │
     │                                              ├── Generate One-Time Code (60s TTL)    │
     │◄── 302 Redirect to Frontend ─────────────────┤                                       │
     │    ${FRONTEND_URL}/oauth2/callback?code=xyz  │                                       │
-    │    [ZERO JWT IN URL]                         │                                       │
+    │    [ZERO JWT IN REDIRECT URL]                │                                       │
     │                                              │                                       │
     ├─── POST /api/auth/oauth2/exchange ──────────►│                                       │
     │    { "code": "xyz" }                         ├── Verify & burn exchange code         │
@@ -107,44 +230,76 @@ Browser / React Client                  Spring Boot OAuth Backend               
 
 ## Tech Stack
 
-* **Language**: Java 21
-* **Framework**: Spring Boot 4.x / 3.4.x
-* **Security**: Spring Security 6.x (Stateless Session, Method Security, BCrypt)
-* **OAuth2**: Spring Security OAuth2 Client (OpenID Connect)
+### Backend
+* **Language & Runtime**: Java 21
+* **Framework**: Spring Boot 4.0.8 / 3.4.x
+* **Security**: Spring Security 6.x (Stateless session management, `@PreAuthorize` method security, BCrypt)
+* **OAuth 2.0**: Spring Security OAuth2 Client (Google OpenID Connect)
 * **JWT**: JJWT (`io.jsonwebtoken` 0.12.6)
 * **Database**: MySQL 8.0
-* **Persistence**: Spring Data JPA / Hibernate
-* **Database Migrations**: Flyway
-* **Validation**: Jakarta Bean Validation
-* **Tooling & Build**: Maven, Lombok, Docker Compose
+* **Persistence**: Spring Data JPA / Hibernate (DDL validation mode)
+* **Migrations**: Flyway (`flyway-core`, `flyway-mysql`)
+* **File Storage**: Local filesystem with atomic write and recursive cleanup
+* **Build Tool**: Maven
+
+### Frontend
+* **Core**: React 19, JavaScript (ES Modules)
+* **Routing**: React Router DOM 7
+* **Build Tool & Dev Server**: Vite 6
+* **Styling**: Vanilla CSS with custom design system, glassmorphism accents, and responsive layout tokens
 
 ---
 
-## Prerequisites
+## Database Schema & Migrations
 
-* **Java Development Kit (JDK)**: Version 21 installed and configured.
-* **Maven**: Version 3.8+ (or use the provided `./mvnw` wrapper).
-* **MySQL**: MySQL 8.0 running locally or via Docker Compose.
-* **Google Cloud Project**: An active Google Cloud Console project with OAuth 2.0 client credentials.
+Database schema updates are managed through Flyway scripts in `authportal/src/main/resources/db/migration/`:
+
+| Migration | File | Description |
+| :--- | :--- | :--- |
+| **V1** | `V1__create_users_table.sql` | Creates `users` table with indexes on `email`, `google_id`, and `role`. |
+| **V2** | `V2__create_submissions_tables.sql` | Creates `submissions` and `submission_files` tables with foreign keys and unique constraint on `(user_id, week, year, section)`. |
+| **V3** | `V3__create_student_evaluations_tables.sql` | Creates `student_evaluations` and `teacher_feedback` tables with unique keys on `(student_id, week)`. |
+| **V4** | `V4__expand_evaluation_score_columns.sql` | Expands criterion score columns in evaluations for extended grading precision. |
+
+---
+
+## File Storage Architecture
+
+Submissions are stored on disk in the directory designated by `STORAGE_PATH` (default: `storage/`):
+
+```text
+storage/
+└── submissions/
+    └── week-{week}/
+        └── sec-{section}/
+            └── {studentId}/
+                ├── {uuid}_{originalFilename}.c
+                └── {uuid}_{originalFilename}.pdf
+```
+
+* When a student **resubmits** for the same week and section, the folder contents are overwritten and the revision number in the database increments (`v1` $\rightarrow$ `v2`...).
+* When a submission is **deleted**, the folder contents and the directory itself are deleted from disk, and database records are removed.
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` or export these variables in your deployment environment:
+Configure these environment variables in a `.env` file at the project root or export them in your deployment environment:
 
 | Variable | Required | Default / Example | Description |
 | :--- | :---: | :--- | :--- |
-| `PORT` | No | `8080` | Port for the backend API server. |
-| `DATABASE_URL` | Yes | `jdbc:mysql://localhost:3306/authportal?...` | JDBC connection URL to MySQL database. |
-| `DATABASE_USERNAME` | Yes | `root` | MySQL database username. |
-| `DATABASE_PASSWORD` | Yes | `root` | MySQL database password. |
+| `PORT` | No | `8080` | Port for backend REST API server. |
+| `DATABASE_URL` | Yes | `jdbc:mysql://localhost:3306/authportal?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true` | JDBC connection URL to MySQL database. |
+| `DATABASE_USERNAME` | Yes | `root` | MySQL username. |
+| `DATABASE_PASSWORD` | Yes | `root` | MySQL password. |
 | `JWT_SECRET` | **Yes** | *(No default - must be 256+ bits)* | Secret HMAC signing key for JWT tokens. |
 | `JWT_EXPIRATION` | No | `86400000` (24 hours) | Token validity in milliseconds. |
-| `GOOGLE_CLIENT_ID` | Yes | `...apps.googleusercontent.com` | Google OAuth 2.0 Client ID. |
-| `GOOGLE_CLIENT_SECRET`| Yes | `GOCSPX-...` | Google OAuth 2.0 Client Secret. |
+| `GOOGLE_CLIENT_ID` | Yes | `...apps.googleusercontent.com` | Google Cloud OAuth 2.0 Client ID. |
+| `GOOGLE_CLIENT_SECRET` | Yes | `GOCSPX-...` | Google Cloud OAuth 2.0 Client Secret. |
 | `FRONTEND_URL` | No | `http://localhost:5173` | Frontend URL for CORS and OAuth redirect callback. |
-| `TEACHER_ALLOWED_EMAILS`| No | `hod.cse@rguktn.ac.in,dean@rguktn.ac.in` | Comma-separated allowlist of approved teacher emails. |
+| `TEACHER_ALLOWED_EMAILS`| No | `hod.cse@rguktn.ac.in,dean@rguktn.ac.in` | Comma-separated allowlist of approved institutional teacher emails. |
+| `STORAGE_PATH` | No | `storage` | Base path for stored submission files. |
+| `VITE_API_BASE_URL` | No | `http://localhost:8080` | Frontend environment variable pointing to backend API. |
 
 ---
 
@@ -154,7 +309,7 @@ Copy `.env.example` to `.env` or export these variables in your deployment envir
 2. Navigate to **APIs & Services** > **Credentials**.
 3. Click **Create Credentials** > **OAuth client ID**.
 4. Select **Web application** as the application type.
-5. In **Authorized redirect URIs**, configure:
+5. In **Authorized redirect URIs**, add:
    * **Local Development**:
      ```text
      http://localhost:8080/login/oauth2/code/google
@@ -167,174 +322,220 @@ Copy `.env.example` to `.env` or export these variables in your deployment envir
 
 ---
 
-## Database Setup & Migrations
+## Running Locally
 
-### Using Docker Compose:
-A `docker-compose.yml` file is provided in the repository root:
+### 1. Database Setup (Docker Compose or Native)
+
+Using Docker Compose from the project root:
 ```bash
 docker compose up -d
 ```
-This starts MySQL 8 on port `3306` with database `authportal`.
+This launches a MySQL 8 container mapped to port `3306` with the `authportal` database created.
 
-### Flyway Migrations:
-Flyway runs automatically on application startup. Migration scripts reside in:
-`authportal/src/main/resources/db/migration/`
-* `V1__create_users_table.sql`: Creates `users` table with indexes on `email`, `google_id`, and `role`.
+### 2. Backend Setup & Run
+
+1. Navigate to the `authportal` directory:
+   ```bash
+   cd authportal
+   ```
+2. Compile and launch the Spring Boot application:
+   ```bash
+   mvn clean compile
+   mvn spring-boot:run
+   ```
+   The backend will start on `http://localhost:8080`. Flyway migrations execute automatically on startup.
+
+### 3. Frontend Setup & Run
+
+1. Open a separate terminal and navigate to `frontend`:
+   ```bash
+   cd frontend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Launch the Vite development server:
+   ```bash
+   npm run dev
+   ```
+   The frontend runs on `http://localhost:5173`.
 
 ---
 
-## Running Locally
+## Running Automated Tests
 
-### 1. Configure Environment:
-Set the required environment variables in your terminal or IntelliJ Run Configuration:
-```bash
-export JWT_SECRET="your_secure_256_bit_random_secret_key_string_here_12345"
-export DATABASE_URL="jdbc:mysql://localhost:3306/authportal?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
-export DATABASE_USERNAME="root"
-export DATABASE_PASSWORD="your_password"
-export GOOGLE_CLIENT_ID="your_google_client_id"
-export GOOGLE_CLIENT_SECRET="your_google_client_secret"
-export FRONTEND_URL="http://localhost:5173"
-export TEACHER_ALLOWED_EMAILS="faculty@rguktn.ac.in"
-```
+The backend includes a comprehensive suite of **121 automated tests** covering controllers, services, security filters, role resolvers, repository specifications, and ZIP archiving. Tests use an isolated H2 in-memory database with zero external dependencies.
 
-### 2. Build & Run:
+Run all tests:
 ```bash
 cd authportal
-./mvnw clean compile
-./mvnw spring-boot:run
+mvn test
 ```
 
----
-
-## Running Tests
-
-Automated tests use an isolated H2 in-memory test configuration (`application-test.properties`). They execute without requiring a live MySQL daemon:
-
+Run targeted submission tests:
 ```bash
-cd authportal
-./mvnw test
+mvn test -Dtest=SubmissionServiceTest,SubmissionControllerTest
 ```
 
-### Test Suites Included:
-* `EmailRoleResolverTest`: Verifies uppercase/lowercase student regex patterns, boundary cases, invalid patterns, domain checks, teacher allowlists, and admin exclusion.
-* `JwtServiceTest`: Verifies HMAC-SHA256 generation, claim extraction, signature validation, expiration detection, and tamper resistance.
-* `AuthServiceTest`: Verifies local registration, duplicate email rejection, BCrypt password hashing, local login, disabled accounts, and OAuth code exchange.
-* `CustomOAuth2UserServiceTest`: Verifies Google user provisioning, institutional domain enforcement, account linking, and ADMIN role preservation.
-* `AuthControllerTest`: MockMvc slice testing for registration, validation, login, OAuth exchange, and logout.
-* `SecurityAuthorizationTest`: MockMvc RBAC verification for role-protected endpoints (`/api/test/student`, `/api/test/teacher`, `/api/test/admin`).
+Build and test frontend:
+```bash
+cd frontend
+npm run build
+```
 
 ---
 
-## API Endpoints Reference
+## REST API Reference
 
-### Public Authentication Endpoints
+### Authentication Endpoints (`/api/auth`)
 
-#### 1. Local Registration
-* **Endpoint**: `POST /api/auth/register`
-* **Request Body**:
-  ```json
-  {
-    "name": "Selva",
-    "email": "n210921@rguktn.ac.in",
-    "password": "StrongPassword123"
-  }
-  ```
-* **Response**: `201 Created`
-  ```json
-  {
-    "token": "eyJhbGciOiJIUzI1NiJ9...",
-    "tokenType": "Bearer",
-    "expiresIn": 86400,
-    "user": {
-      "id": 1,
-      "name": "Selva",
-      "email": "n210921@rguktn.ac.in",
-      "role": "STUDENT",
-      "authProvider": "LOCAL",
-      "profilePicture": null,
-      "enabled": true,
-      "createdAt": "2026-09-03T05:53:20Z"
-    }
-  }
-  ```
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Public | Register student or teacher with institutional email. |
+| `POST` | `/api/auth/login` | Public | Login with email and password, returning JWT. |
+| `POST` | `/api/auth/oauth2/exchange` | Public | Exchange single-use Google OAuth code for JWT. |
+| `GET` | `/api/auth/me` | Authenticated | Retrieve current user profile. |
+| `POST` | `/api/auth/logout` | Authenticated | Stateless client logout acknowledgement. |
 
-#### 2. Local Login
-* **Endpoint**: `POST /api/auth/login`
-* **Request Body**:
-  ```json
-  {
-    "email": "n210921@rguktn.ac.in",
-    "password": "StrongPassword123"
-  }
-  ```
-* **Response**: `200 OK` (Same `AuthResponse` schema as above)
+#### Register Request Body
+```json
+{
+  "name": "Selva Kumar",
+  "email": "n210921@rguktn.ac.in",
+  "password": "StrongPassword123!"
+}
+```
 
-#### 3. Exchange OAuth2 Authorization Code
-* **Endpoint**: `POST /api/auth/oauth2/exchange`
-* **Request Body**:
-  ```json
-  {
-    "code": "4c94bcdd67744318a6a16c74ad64a88f"
-  }
-  ```
-* **Response**: `200 OK` (Returns `AuthResponse` with JWT)
-
----
-
-### Protected Endpoints (Requires `Authorization: Bearer <token>`)
-
-#### 4. Get Current User Profile
-* **Endpoint**: `GET /api/auth/me`
-* **Headers**: `Authorization: Bearer <token>`
-* **Response**: `200 OK`
-  ```json
-  {
+#### Auth Response Payload
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 86400,
+  "user": {
     "id": 1,
-    "name": "Selva",
+    "name": "Selva Kumar",
     "email": "n210921@rguktn.ac.in",
     "role": "STUDENT",
-    "authProvider": "GOOGLE",
-    "profilePicture": "https://lh3.googleusercontent.com/a/...",
+    "authProvider": "LOCAL",
+    "profilePicture": null,
     "enabled": true,
     "createdAt": "2026-09-03T05:53:20Z"
   }
-  ```
-
-#### 5. Logout
-* **Endpoint**: `POST /api/auth/logout`
-* **Headers**: `Authorization: Bearer <token>`
-* **Response**: `200 OK`
-  ```json
-  {
-    "success": true,
-    "message": "Logged out successfully."
-  }
-  ```
+}
+```
 
 ---
 
-### Role-Based Test Endpoints
+### Profile Endpoints (`/api/profile`)
 
-* `GET /api/test/authenticated` — Accessible by any authenticated account.
-* `GET /api/test/student` — Requires `ROLE_STUDENT`.
-* `GET /api/test/teacher` — Requires `ROLE_TEACHER`.
-* `GET /api/test/admin` — Requires `ROLE_ADMIN`.
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/profile` | Authenticated | Get profile details for authenticated user. |
+| `PUT` | `/api/profile` | Authenticated | Update user profile information (e.g. name). |
+| `POST` | `/api/profile/change-password`| Authenticated | Change password (verifies current password). |
+
+#### Change Password Request Body
+```json
+{
+  "currentPassword": "OldPassword123!",
+  "newPassword": "NewPassword456!",
+  "confirmPassword": "NewPassword456!"
+}
+```
+
+---
+
+### Submission Endpoints (`/api/submissions`)
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/submissions/default-student-id` | Student, Admin | Derives student ID from institutional email. |
+| `POST` | `/api/submissions` | Student, Admin | Uploads lab submission (`multipart/form-data`). |
+| `GET` | `/api/submissions/my` | Student, Admin | Lists authenticated student's submissions. |
+| `GET` | `/api/submissions/my/{id}` | Student, Admin | Fetches details of student submission. |
+| `DELETE` | `/api/submissions/{id}` | Student (owner), Admin | Deletes submission and stored files on disk. |
+| `GET` | `/api/submissions/{submissionId}/files/{fileId}` | Authenticated | Downloads specific submission file. |
+| `GET` | `/api/submissions/teacher` | Teacher, Admin | Filters submissions across Week, Year, Section, ID. |
+| `GET` | `/api/submissions/teacher/download-zip` | Teacher, Admin | Streams submissions as hierarchical ZIP archive. |
+
+#### Upload Multipart Form Fields
+* `studentId`: String (e.g. `N210921`)
+* `week`: Integer (`1` to `12`)
+* `year`: String (`E1`, `E2`, `E3`, `E4`)
+* `section`: Integer (`1` to `6`)
+* `files`: One or more `.c` and `.pdf` files
+
+---
+
+### Teacher Evaluation Endpoints (`/api/teacher/evaluations`)
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/teacher/evaluations/upload` | Teacher, Admin | Uploads evaluation report file (CSV/JSON). |
+| `POST` | `/api/teacher/evaluations/upload-json` | Teacher, Admin | Uploads raw JSON evaluation payload. |
+| `GET` | `/api/teacher/evaluations/grid` | Teacher, Admin | Fetches multi-week evaluation spreadsheet data. |
+| `GET` | `/api/teacher/evaluations/report` | Teacher, Admin | Generates consolidated evaluation report. |
+| `POST` | `/api/teacher/evaluations/feedback` | Teacher, Admin | Saves teacher comments and review status. |
+
+---
+
+### Admin Console Endpoints (`/api/admin`)
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/admin/stats` | Admin | Fetches user counts and total submissions count. |
+| `GET` | `/api/admin/users` | Admin | Lists portal users with optional query and role filters. |
+| `GET` | `/api/admin/users/{id}` | Admin | Fetches single user record. |
+| `POST` | `/api/admin/users` | Admin | Provisions new user with specified role. |
+| `PATCH` | `/api/admin/users/{id}/role` | Admin | Updates user role (protects last admin). |
+| `PATCH` | `/api/admin/users/{id}/status` | Admin | Enables/disables account (protects self/last admin). |
+| `GET` | `/api/admin/submissions` | Admin | Lists all submissions across portal with filters. |
+| `DELETE` | `/api/admin/submissions/{id}` | Admin | Deletes submission record and stored disk files. |
+
+---
+
+### Health & Diagnostics
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/health` | Public | Basic service health check probe. |
+| `GET` | `/api/test/authenticated` | Authenticated | Validates JWT token authentication. |
+| `GET` | `/api/test/student` | Role: STUDENT | Validates student role access. |
+| `GET` | `/api/test/teacher` | Role: TEACHER | Validates teacher role access. |
+| `GET` | `/api/test/admin` | Role: ADMIN | Validates admin role access. |
 
 ---
 
 ## Production Deployment Guide
 
-1. **Build the Production JAR**:
-   ```bash
-   ./mvnw clean package -DskipTests
-   ```
-2. **Configure Production Environment**:
-   * Set `DATABASE_URL` pointing to your managed MySQL instance (AWS RDS, Google Cloud SQL, etc.).
-   * Set `JWT_SECRET` with a high-entropy secret (e.g. generated via `openssl rand -hex 64`).
-   * Set `FRONTEND_URL` to your production frontend domain (e.g. `https://portal.rguktn.ac.in`).
-   * Add `https://api.rguktn.ac.in/login/oauth2/code/google` to Google Cloud Console authorized redirect URIs.
-3. **Execute**:
-   ```bash
-   java -jar target/authportal-0.0.1-SNAPSHOT.jar
-   ```
+### 1. Docker Build
+
+Build the backend container using the multi-stage Dockerfile:
+```bash
+docker build -t authportal-backend:latest ./authportal
+```
+
+Run the container:
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -e DATABASE_URL="jdbc:mysql://your-db-host:3306/authportal" \
+  -e DATABASE_USERNAME="appuser" \
+  -e DATABASE_PASSWORD="securepassword" \
+  -e JWT_SECRET="your-256-bit-random-secret" \
+  -e GOOGLE_CLIENT_ID="your-client-id" \
+  -e GOOGLE_CLIENT_SECRET="your-client-secret" \
+  -e FRONTEND_URL="https://portal.rguktn.ac.in" \
+  -v /var/authportal/storage:/app/storage \
+  authportal-backend:latest
+```
+
+### 2. Render Deployment (`render.yaml`)
+
+The repository includes a ready-to-deploy `render.yaml` specification configured for Render Web Services.
+1. Connect your repository to [Render](https://render.com/).
+2. Create a new **Blueprint** instance selecting `render.yaml`.
+3. Set the required secret environment variables (`DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `FRONTEND_URL`).
+4. Render automatically executes the multi-stage build, starts the service, and monitors the `/api/health` endpoint.
