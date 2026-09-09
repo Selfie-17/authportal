@@ -3,6 +3,7 @@ package com.selva.authportal.service.storage;
 import com.selva.authportal.config.BackblazeStorageProperties;
 import com.selva.authportal.service.StorageService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -36,6 +37,7 @@ public class BackblazeB2StorageService implements StorageService {
     private final S3Client s3Client;
     private final String bucketName;
 
+    @Autowired
     public BackblazeB2StorageService(BackblazeStorageProperties properties) {
         this.bucketName = properties.getBucketName();
 
