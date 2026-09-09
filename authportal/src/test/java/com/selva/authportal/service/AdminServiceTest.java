@@ -159,17 +159,14 @@ class AdminServiceTest {
                 .studentId("N210001")
                 .week(1)
                 .section(2)
+                .storagePath("submissions/week-1/sec-2/N210001")
                 .build();
 
-        Path subDir = tempDir.resolve("week-1/sec-2/N210001");
-        java.nio.file.Files.createDirectories(subDir);
-
         when(submissionRepository.findById(10L)).thenReturn(Optional.of(sub));
-        when(storageService.resolveSubmissionDirectory(1, 2, "N210001")).thenReturn(subDir);
 
         adminService.deleteSubmission(10L);
 
-        verify(storageService).deleteDirectoryContents(subDir);
+        verify(storageService).deletePrefix("submissions/week-1/sec-2/N210001");
         verify(submissionRepository).delete(sub);
     }
 

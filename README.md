@@ -260,25 +260,35 @@ Database schema updates are managed through Flyway scripts in `authportal/src/ma
 | **V2** | `V2__create_submissions_tables.sql` | Creates `submissions` and `submission_files` tables with foreign keys and unique constraint on `(user_id, week, year, section)`. |
 | **V3** | `V3__create_student_evaluations_tables.sql` | Creates `student_evaluations` and `teacher_feedback` tables with unique keys on `(student_id, week)`. |
 | **V4** | `V4__expand_evaluation_score_columns.sql` | Expands criterion score columns in evaluations for extended grading precision. |
+| **V5** | `V5__add_drive_file_id.sql` | Adds nullable `drive_file_id` column to `submission_files` for direct Google Drive object lookup. |
+| **V6** | `V6__add_storage_key_to_submission_files.sql` | Adds provider-neutral `storage_key` column to `submission_files` for S3 / Backblaze object identification. |
 
 ---
 
 ## File Storage Architecture
 
-Submissions are stored on disk in the directory designated by `STORAGE_PATH` (default: `storage/`):
+The portal employs a pluggable, storage-agnostic architecture (`StorageService`) supporting:
+- **Local Filesystem (`STORAGE_TYPE=local`, default)**: Stores files on disk under `STORAGE_PATH` (default: `storage/`). Perfect for local development, offline workflows, and automated test isolation with zero external credentials.
+- **Backblaze B2 (`STORAGE_TYPE=backblaze`)**: Production cloud storage connecting to Backblaze B2 via its S3-compatible API using AWS SDK for Java v2 (`software.amazon.awssdk:s3`). Streams files directly to/from a private bucket (`B2_BUCKET_NAME`) using deterministic object keys.
 
 ```text
-storage/
+storage/ (or Backblaze B2 bucket: rguktn-academic-portal)
 └── submissions/
     └── week-{week}/
         └── sec-{section}/
             └── {studentId}/
-                ├── {uuid}_{originalFilename}.c
-                └── {uuid}_{originalFilename}.pdf
+                ├── main.c
+                └── report.pdf
 ```
 
-* When a student **resubmits** for the same week and section, the folder contents are overwritten and the revision number in the database increments (`v1` $\rightarrow$ `v2`...).
-* When a submission is **deleted**, the folder contents and the directory itself are deleted from disk, and database records are removed.
+### Key Principles
+
+* **Aiven MySQL**: Stores relational metadata (student ID, week, section, revision, original/stored filename, file size, MIME type, marks, and provider-neutral `storage_key`).
+* **Physical Storage (Local or Backblaze B2)**: Stores raw `.c` source code and `.pdf` report bytes using the canonical storage key `submissions/week-{w}/sec-{s}/{studentId}/{filename}`.
+* **Direct Streaming (Zero Disk Staging)**: Direct uploads and downloads stream through `InputStream` / `ResponseInputStream` directly to/from Backblaze B2 without staging files on Render's ephemeral local disk.
+* **Revision Handling**: Resubmission cleans up old objects under the submission's prefix and updates database records with an incremented revision count (`v1` $\rightarrow$ `v2`...).
+* **Streaming ZIP Downloads**: Teacher batch ZIPs stream files directly from storage into `ZipOutputStream` on-the-fly, without requiring temporary files on disk.
+* **Zero Frontend Changes**: React interacts purely via REST APIs (`POST /api/submissions`, `GET /api/submissions/{id}/files/{fileId}`, `GET /api/submissions/teacher/download-zip`).
 
 ---
 
@@ -289,16 +299,22 @@ Configure these environment variables in a `.env` file at the project root or ex
 | Variable | Required | Default / Example | Description |
 | :--- | :---: | :--- | :--- |
 | `PORT` | No | `8080` | Port for backend REST API server. |
-| `DATABASE_URL` | Yes | `jdbc:mysql://localhost:3306/authportal?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true` | JDBC connection URL to MySQL database. |
+| `DATABASE_URL` | Yes | `jdbc:mysql://localhost:3306/authportal?...` | JDBC connection URL to MySQL database (e.g. Aiven MySQL). |
 | `DATABASE_USERNAME` | Yes | `root` | MySQL username. |
 | `DATABASE_PASSWORD` | Yes | `root` | MySQL password. |
 | `JWT_SECRET` | **Yes** | *(No default - must be 256+ bits)* | Secret HMAC signing key for JWT tokens. |
 | `JWT_EXPIRATION` | No | `86400000` (24 hours) | Token validity in milliseconds. |
-| `GOOGLE_CLIENT_ID` | Yes | `...apps.googleusercontent.com` | Google Cloud OAuth 2.0 Client ID. |
-| `GOOGLE_CLIENT_SECRET` | Yes | `GOCSPX-...` | Google Cloud OAuth 2.0 Client Secret. |
+| `GOOGLE_CLIENT_ID` | Yes | `...apps.googleusercontent.com` | Google Cloud OAuth 2.0 Client ID for user login. |
+| `GOOGLE_CLIENT_SECRET` | Yes | `GOCSPX-...` | Google Cloud OAuth 2.0 Client Secret for user login. |
 | `FRONTEND_URL` | No | `http://localhost:5173` | Frontend URL for CORS and OAuth redirect callback. |
 | `TEACHER_ALLOWED_EMAILS`| No | `hod.cse@rguktn.ac.in,dean@rguktn.ac.in` | Comma-separated allowlist of approved institutional teacher emails. |
-| `STORAGE_PATH` | No | `storage` | Base path for stored submission files. |
+| `STORAGE_TYPE` | No | `local` | Storage provider: `local` (filesystem) or `backblaze` (Backblaze B2 S3 API). |
+| `STORAGE_PATH` | No | `storage` | Base path for local disk storage (when `STORAGE_TYPE=local`). |
+| `B2_ENDPOINT` | When `backblaze` | `https://s3.us-east-005.backblazeb2.com` | Backblaze B2 S3-compatible endpoint URL. |
+| `B2_BUCKET_NAME` | When `backblaze` | `rguktn-academic-portal` | Backblaze B2 private bucket name. |
+| `B2_KEY_ID` | When `backblaze` | *(secret)* | Backblaze B2 Application Key ID (AWS Access Key ID equivalent). |
+| `B2_APPLICATION_KEY` | When `backblaze` | *(secret)* | Backblaze B2 Application Key (AWS Secret Access Key equivalent). |
+| `B2_REGION` | No | `us-east-005` | Backblaze B2 S3 region matching your endpoint. |
 | `VITE_API_BASE_URL` | No | `http://localhost:8080` | Frontend environment variable pointing to backend API. |
 
 ---

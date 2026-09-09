@@ -38,6 +38,19 @@ public class SubmissionFile {
     @Column(name = "stored_filename", nullable = false, length = 255)
     private String storedFilename;
 
+    @Column(name = "storage_key", length = 512)
+    private String storageKey;
+
+    public String getEffectiveStorageKey() {
+        if (this.storageKey != null && !this.storageKey.trim().isEmpty()) {
+            return this.storageKey;
+        }
+        if (this.submission != null && this.submission.getStoragePath() != null && this.storedFilename != null) {
+            return this.submission.getStoragePath() + "/" + this.storedFilename;
+        }
+        return this.storedFilename;
+    }
+
     @Column(name = "file_extension", nullable = false, length = 16)
     private String fileExtension;
 

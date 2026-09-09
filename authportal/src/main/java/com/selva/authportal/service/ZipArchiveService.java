@@ -2,15 +2,15 @@ package com.selva.authportal.service;
 
 import com.selva.authportal.model.Submission;
 import com.selva.authportal.model.SubmissionFile;
+import com.selva.authportal.util.SubmissionPathUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -66,32 +66,21 @@ public class ZipArchiveService {
             }
 
             Set<String> addedEntries = new HashSet<>();
-            java.util.List<String> missingFiles = new java.util.ArrayList<>();
+            List<String> missingFiles = new ArrayList<>();
 
             for (Submission submission : submissions) {
-                Path studentDir;
-                try {
-                    studentDir = storageService.resolveSubmissionDirectory(
-                            submission.getWeek(),
-                            submission.getSection(),
-                            submission.getStudentId()
-                    );
-                } catch (Exception e) {
-                    log.warn("Invalid submission directory for student {}: {}", submission.getStudentId(), e.getMessage());
-                    missingFiles.add(String.format("Student %s (Week %d, Sec %d): Directory error - %s",
-                            submission.getStudentId(), submission.getWeek(), submission.getSection(), e.getMessage()));
-                    continue;
-                }
-
                 if (submission.getFiles() == null || submission.getFiles().isEmpty()) {
                     continue;
                 }
 
                 for (SubmissionFile file : submission.getFiles()) {
-                    Path filePath = studentDir.resolve(file.getStoredFilename());
-                    if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
-                        log.warn("Submission file not found on disk at {}. Skipping from ZIP.", filePath);
-                        missingFiles.add(String.format("Student %s: %s (file missing on server storage)",
+                    String storageKey = (file.getStorageKey() != null && !file.getStorageKey().trim().isEmpty())
+                            ? file.getStorageKey()
+                            : SubmissionPathUtils.buildStorageKey(submission.getStoragePath(), file.getStoredFilename());
+
+                    if (!storageService.fileExists(storageKey)) {
+                        log.warn("Submission file not found in storage at {}. Skipping from ZIP.", storageKey);
+                        missingFiles.add(String.format("Student %s: %s (file missing in storage)",
                                 submission.getStudentId(), file.getOriginalFilename()));
                         continue;
                     }
@@ -112,18 +101,20 @@ public class ZipArchiveService {
                             zipEntry.setTime(file.getCreatedAt().toEpochMilli());
                         }
                         zipOut.putNextEntry(zipEntry);
-                        Files.copy(filePath, zipOut);
+                        try (InputStream is = storageService.openStream(storageKey)) {
+                            is.transferTo(zipOut);
+                        }
                         zipOut.closeEntry();
                     }
                 }
             }
 
-            // If some or all files were missing on disk, add an informative notice entry
+            // If some or all files were missing in storage, add an informative notice entry
             if (addedEntries.isEmpty()) {
                 ZipEntry emptyNotice = new ZipEntry("README.txt");
                 zipOut.putNextEntry(emptyNotice);
                 StringBuilder sb = new StringBuilder();
-                sb.append("No physical submission files were found on the server filesystem for Week ").append(week);
+                sb.append("No physical submission files were found in storage for Week ").append(week);
                 if (section != null) {
                     sb.append(", Section ").append(section);
                 }
@@ -135,7 +126,7 @@ public class ZipArchiveService {
                         sb.append(" - ").append(mf).append("\n");
                     }
                 }
-                sb.append("\nNote: In cloud deployments (e.g. Render Free Tier), local disk storage is ephemeral and is reset across redeployments or container restarts.\n");
+                sb.append("\nNote: When using local ephemeral container storage, files do not persist across restarts. Configure Backblaze B2 (STORAGE_TYPE=backblaze) for durable persistence.\n");
                 zipOut.write(sb.toString().getBytes(StandardCharsets.UTF_8));
                 zipOut.closeEntry();
             } else if (!missingFiles.isEmpty()) {

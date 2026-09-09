@@ -8,9 +8,11 @@ import com.selva.authportal.exception.ResourceNotFoundException;
 import com.selva.authportal.model.*;
 import com.selva.authportal.repository.SubmissionFileRepository;
 import com.selva.authportal.repository.SubmissionRepository;
+import com.selva.authportal.util.SubmissionPathUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -19,9 +21,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.MalformedURLException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -105,7 +104,7 @@ public class SubmissionService {
         String studentId = validateAndNormalizeStudentId(request.getStudentId());
         validateFiles(files);
 
-        Path targetDirectory = storageService.resolveSubmissionDirectory(
+        String relativeStoragePath = SubmissionPathUtils.resolveRelativeStoragePath(
                 request.getWeek(),
                 request.getSection(),
                 studentId
@@ -127,11 +126,11 @@ public class SubmissionService {
             submission.setVersion(submission.getVersion() + 1);
             submission.setStatus(SubmissionStatus.UPDATED);
 
-            // Clean up previous files on disk
+            // Clean up previous files in storage
             try {
-                storageService.deleteDirectoryContents(targetDirectory);
+                storageService.deletePrefix(submission.getStoragePath());
             } catch (IOException e) {
-                throw new IllegalStateException("Failed to clean up previous submission files on disk", e);
+                throw new IllegalStateException("Failed to clean up previous submission files in storage", e);
             }
 
             // Remove existing file database records
@@ -146,7 +145,7 @@ public class SubmissionService {
                     .week(request.getWeek())
                     .year(request.getYear())
                     .section(request.getSection())
-                    .storagePath(storageService.getRelativeStoragePath(request.getWeek(), request.getSection(), studentId))
+                    .storagePath(relativeStoragePath)
                     .status(SubmissionStatus.SUBMITTED)
                     .version(1)
                     .files(new ArrayList<>())
@@ -158,7 +157,7 @@ public class SubmissionService {
         // Store each validated file
         Set<String> seenFilenames = new HashSet<>();
         for (MultipartFile file : files) {
-            String originalFilename = storageService.sanitizeFilename(file.getOriginalFilename());
+            String originalFilename = SubmissionPathUtils.sanitizeFilename(file.getOriginalFilename());
             if (!seenFilenames.add(originalFilename.toLowerCase())) {
                 throw new FileValidationException("Duplicate file in submission: " + originalFilename);
             }
@@ -166,8 +165,9 @@ public class SubmissionService {
             String ext = getFileExtension(originalFilename);
             FileType fileType = ext.equalsIgnoreCase(".c") ? FileType.SOURCE_CODE : FileType.PDF_REPORT;
 
+            String storageKey = SubmissionPathUtils.buildStorageKey(relativeStoragePath, originalFilename);
             try {
-                storageService.storeFile(file, targetDirectory, originalFilename);
+                storageService.storeFile(file.getInputStream(), storageKey, file.getContentType(), file.getSize());
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to store file: " + originalFilename, e);
             }
@@ -175,6 +175,7 @@ public class SubmissionService {
             SubmissionFile submissionFile = SubmissionFile.builder()
                     .originalFilename(originalFilename)
                     .storedFilename(originalFilename)
+                    .storageKey(storageKey)
                     .fileExtension(ext.toLowerCase())
                     .fileType(fileType)
                     .fileSizeBytes(file.getSize())
@@ -222,17 +223,13 @@ public class SubmissionService {
             throw new AccessDeniedException("You do not have permission to delete this submission.");
         }
 
-        // Clean up files on disk
-        try {
-            Path submissionDir = storageService.resolveSubmissionDirectory(
-                    submission.getWeek(),
-                    submission.getSection(),
-                    submission.getStudentId()
-            );
-            storageService.deleteDirectoryContents(submissionDir);
-            Files.deleteIfExists(submissionDir);
-        } catch (IOException e) {
-            log.warn("Failed to clean up submission directory for id {}: {}", submissionId, e.getMessage());
+        // Clean up files in storage
+        if (submission.getStoragePath() != null && !submission.getStoragePath().trim().isEmpty()) {
+            try {
+                storageService.deletePrefix(submission.getStoragePath());
+            } catch (IOException e) {
+                log.warn("Failed to clean up storage for submission id {}: {}", submissionId, e.getMessage());
+            }
         }
 
         submissionRepository.delete(submission);
@@ -286,7 +283,7 @@ public class SubmissionService {
      * Teachers and Admins may download files from any submission.
      */
     @Transactional(readOnly = true)
-    public DownloadableFile loadFileForDownload(User currentUser, Long submissionId, Long fileId) throws MalformedURLException {
+    public DownloadableFile loadFileForDownload(User currentUser, Long submissionId, Long fileId) {
         Submission submission = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Submission not found with id: " + submissionId));
 
@@ -298,13 +295,22 @@ public class SubmissionService {
         SubmissionFile submissionFile = submissionFileRepository.findByIdAndSubmissionId(fileId, submissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("File not found with id: " + fileId));
 
-        Path filePath = storageService.resolveSubmissionDirectory(
-                submission.getWeek(),
-                submission.getSection(),
-                submission.getStudentId()
-        ).resolve(submissionFile.getStoredFilename());
+        String storageKey = (submissionFile.getStorageKey() != null && !submissionFile.getStorageKey().trim().isEmpty())
+                ? submissionFile.getStorageKey()
+                : SubmissionPathUtils.buildStorageKey(submission.getStoragePath(), submissionFile.getStoredFilename());
 
-        Resource resource = storageService.loadAsResource(filePath);
+        if (!storageService.fileExists(storageKey)) {
+            throw new ResourceNotFoundException("File not found in storage: " + submissionFile.getOriginalFilename());
+        }
+
+        InputStream inputStream;
+        try {
+            inputStream = storageService.openStream(storageKey);
+        } catch (IOException e) {
+            throw new IllegalStateException("Could not read file from storage: " + submissionFile.getOriginalFilename(), e);
+        }
+
+        Resource resource = new InputStreamResource(inputStream);
         String contentType = submissionFile.getFileExtension().equalsIgnoreCase(".pdf")
                 ? "application/pdf"
                 : "text/plain; charset=UTF-8";

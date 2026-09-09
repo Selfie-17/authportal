@@ -8,6 +8,7 @@ import com.selva.authportal.exception.ResourceNotFoundException;
 import com.selva.authportal.model.*;
 import com.selva.authportal.repository.SubmissionFileRepository;
 import com.selva.authportal.repository.SubmissionRepository;
+import com.selva.authportal.service.storage.LocalStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -52,8 +53,9 @@ class SubmissionServiceTest {
 
     @BeforeEach
     void setUp() {
-        storageService = new StorageService(tempDir.toString());
-        storageService.init();
+        LocalStorageService localStore = new LocalStorageService(tempDir.toString());
+        localStore.init();
+        storageService = localStore;
 
         submissionService = new SubmissionService(submissionRepository, submissionFileRepository, storageService);
         ReflectionTestUtils.setField(submissionService, "studentPatternRegex", "^[Nn](\\d{6})@rguktn\\.ac\\.in$");
@@ -313,7 +315,7 @@ class SubmissionServiceTest {
     @Test
     @DisplayName("Should allow student to delete their own submission and clean up disk files")
     void shouldAllowStudentToDeleteOwnSubmission() throws IOException {
-        Path subDir = storageService.resolveSubmissionDirectory(1, 2, "N210921");
+        Path subDir = tempDir.resolve("submissions/week-1/sec-2/N210921");
         Files.createDirectories(subDir);
         Files.writeString(subDir.resolve("program.c"), "int main(){}");
 
@@ -324,6 +326,7 @@ class SubmissionServiceTest {
                 .week(1)
                 .section(2)
                 .year(YearLevel.E1)
+                .storagePath("submissions/week-1/sec-2/N210921")
                 .build();
 
         when(submissionRepository.findById(10L)).thenReturn(Optional.of(submission));
@@ -365,6 +368,7 @@ class SubmissionServiceTest {
                 .studentId("N210921")
                 .week(1)
                 .section(2)
+                .storagePath("submissions/week-1/sec-2/N210921")
                 .build();
 
         when(submissionRepository.findById(10L)).thenReturn(Optional.of(submission));

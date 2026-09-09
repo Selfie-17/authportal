@@ -14,3 +14,10 @@ frontend/.env.*
 storage/
 authportal/storage/
 
+# Google Cloud Service Account Keys (NEVER commit secrets to source control)
+*gcp*.json
+*service-account*.json
+*credentials*.json
+gcs-key*.json
+secrets/
+

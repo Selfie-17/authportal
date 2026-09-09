@@ -16,8 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -151,17 +149,13 @@ public class AdminService {
         Submission submission = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Submission not found with id: " + submissionId));
 
-        // Clean up files on disk
-        try {
-            Path submissionDir = storageService.resolveSubmissionDirectory(
-                    submission.getWeek(),
-                    submission.getSection(),
-                    submission.getStudentId()
-            );
-            storageService.deleteDirectoryContents(submissionDir);
-            Files.deleteIfExists(submissionDir);
-        } catch (IOException e) {
-            log.warn("Failed to clean up submission directory for id {}: {}", submissionId, e.getMessage());
+        // Clean up files in storage
+        if (submission.getStoragePath() != null && !submission.getStoragePath().trim().isEmpty()) {
+            try {
+                storageService.deletePrefix(submission.getStoragePath());
+            } catch (IOException e) {
+                log.warn("Failed to clean up storage for submission id {}: {}", submissionId, e.getMessage());
+            }
         }
 
         submissionRepository.delete(submission);

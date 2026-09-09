@@ -4,6 +4,7 @@ import com.selva.authportal.model.FileType;
 import com.selva.authportal.model.Submission;
 import com.selva.authportal.model.SubmissionFile;
 import com.selva.authportal.model.YearLevel;
+import com.selva.authportal.service.storage.LocalStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,8 +33,9 @@ class ZipArchiveServiceTest {
 
     @BeforeEach
     void setUp() {
-        storageService = new StorageService(tempDir.toString());
-        storageService.init();
+        LocalStorageService localStore = new LocalStorageService(tempDir.toString());
+        localStore.init();
+        storageService = localStore;
         zipArchiveService = new ZipArchiveService(storageService);
     }
 
@@ -56,12 +58,8 @@ class ZipArchiveServiceTest {
     @Test
     @DisplayName("Should preserve week-w-sec-s/{studentId}/ hierarchy in ZIP archive")
     void shouldPreserveStudentFolderHierarchyInZip() throws IOException {
-        // Setup mock file on disk
-        Path studentDir = storageService.resolveSubmissionDirectory(1, 2, "N210001");
-        MockMultipartFile cFile = new MockMultipartFile("file", "main.c", "text/x-c", "int main() {}".getBytes());
-        MockMultipartFile pdfFile = new MockMultipartFile("file", "report.pdf", "application/pdf", "%PDF-1.4".getBytes());
-        storageService.storeFile(cFile, studentDir, "main.c");
-        storageService.storeFile(pdfFile, studentDir, "report.pdf");
+        storageService.storeFile(new ByteArrayInputStream("int main() {}".getBytes()), "submissions/week-1/sec-2/N210001/main.c", "text/x-c", 13L);
+        storageService.storeFile(new ByteArrayInputStream("%PDF-1.4".getBytes()), "submissions/week-1/sec-2/N210001/report.pdf", "application/pdf", 8L);
 
         Submission submission = Submission.builder()
                 .id(1L)
@@ -69,6 +67,7 @@ class ZipArchiveServiceTest {
                 .week(1)
                 .year(YearLevel.E1)
                 .section(2)
+                .storagePath("submissions/week-1/sec-2/N210001")
                 .files(List.of(
                         SubmissionFile.builder().originalFilename("main.c").storedFilename("main.c").createdAt(Instant.now()).fileType(FileType.SOURCE_CODE).fileExtension(".c").fileSizeBytes(13L).build(),
                         SubmissionFile.builder().originalFilename("report.pdf").storedFilename("report.pdf").createdAt(Instant.now()).fileType(FileType.PDF_REPORT).fileExtension(".pdf").fileSizeBytes(8L).build()
@@ -95,23 +94,18 @@ class ZipArchiveServiceTest {
     @Test
     @DisplayName("Should preserve week-w/sec-s/{studentId}/ hierarchy in whole-week ZIP archive when section is null")
     void shouldPreserveWholeWeekHierarchyInZip() throws IOException {
-        // Setup mock files for two students across two sections
-        Path s1Dir = storageService.resolveSubmissionDirectory(1, 1, "N210001");
-        Path s2Dir = storageService.resolveSubmissionDirectory(1, 2, "N210002");
-
-        MockMultipartFile file1 = new MockMultipartFile("file", "lab1.c", "text/x-c", "int main() {}".getBytes());
-        MockMultipartFile file2 = new MockMultipartFile("file", "lab2.c", "text/x-c", "int main() { return 0; }".getBytes());
-
-        storageService.storeFile(file1, s1Dir, "lab1.c");
-        storageService.storeFile(file2, s2Dir, "lab2.c");
+        storageService.storeFile(new ByteArrayInputStream("int main() {}".getBytes()), "submissions/week-1/sec-1/N210001/lab1.c", "text/x-c", 13L);
+        storageService.storeFile(new ByteArrayInputStream("int main() { return 0; }".getBytes()), "submissions/week-1/sec-2/N210002/lab2.c", "text/x-c", 24L);
 
         Submission sub1 = Submission.builder()
                 .id(1L).studentId("N210001").week(1).year(YearLevel.E1).section(1)
+                .storagePath("submissions/week-1/sec-1/N210001")
                 .files(List.of(SubmissionFile.builder().originalFilename("lab1.c").storedFilename("lab1.c").createdAt(Instant.now()).fileType(FileType.SOURCE_CODE).fileExtension(".c").fileSizeBytes(13L).build()))
                 .build();
 
         Submission sub2 = Submission.builder()
                 .id(2L).studentId("N210002").week(1).year(YearLevel.E1).section(2)
+                .storagePath("submissions/week-1/sec-2/N210002")
                 .files(List.of(SubmissionFile.builder().originalFilename("lab2.c").storedFilename("lab2.c").createdAt(Instant.now()).fileType(FileType.SOURCE_CODE).fileExtension(".c").fileSizeBytes(24L).build()))
                 .build();
 
@@ -141,6 +135,7 @@ class ZipArchiveServiceTest {
                 .week(1)
                 .year(YearLevel.E1)
                 .section(1)
+                .storagePath("submissions/week-1/sec-1/N210750")
                 .files(List.of(
                         SubmissionFile.builder().originalFilename("report.pdf").storedFilename("missing_report.pdf").createdAt(Instant.now()).fileType(FileType.PDF_REPORT).build()
                 ))
