@@ -66,11 +66,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             name = normalizedEmail.split("@")[0];
         }
 
-        // 1. Verify institutional email domain
-        if (!emailRoleResolver.isInstitutionalDomain(normalizedEmail)) {
+        // 1. Verify eligibility for Google OAuth (must be configured Google Admin or @rguktn.ac.in institutional account)
+        if (!emailRoleResolver.isAllowedOAuthEmail(normalizedEmail)) {
             throw new OAuth2AuthenticationException(
-                    new OAuth2Error("invalid_institutional_domain"),
-                    "Only @rguktn.ac.in institutional accounts are permitted to authenticate."
+                    new OAuth2Error("unauthorized_account"),
+                    "Access denied. Only @rguktn.ac.in institutional accounts and authorized administrators are permitted to authenticate via Google."
             );
         }
 
@@ -91,15 +91,24 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 user.setProfilePicture(picture);
             }
 
-            // CRITICAL: Preserve existing role (especially ADMIN - never downgrade!)
+            // Role assignment for Google OAuth:
+            // - If email is configured Google admin: ensure ADMIN
+            // - Else if user already has ADMIN: preserve ADMIN (never downgrade)
+            // - Else (existing student/teacher): resolve according to Google OAuth rules
+            if (emailRoleResolver.isGoogleAdmin(normalizedEmail)) {
+                user.setRole(Role.ADMIN);
+            } else if (user.getRole() != Role.ADMIN) {
+                user.setRole(emailRoleResolver.resolveOAuthRole(normalizedEmail));
+            }
+
             log.info("Existing user authenticated via Google OAuth: {}, role: {}", normalizedEmail, user.getRole());
             user = userRepository.save(user);
 
         } else {
-            // New user provisioning: determine role via centralized resolver
+            // New user provisioning: determine role via OAuth-specific resolver
             Role role;
             try {
-                role = emailRoleResolver.resolveRole(normalizedEmail);
+                role = emailRoleResolver.resolveOAuthRole(normalizedEmail);
             } catch (InvalidInstitutionalEmailException e) {
                 throw new OAuth2AuthenticationException(
                         new OAuth2Error("unauthorized_registration"),

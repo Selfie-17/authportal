@@ -73,7 +73,9 @@ export default function LoginForm() {
       );
 
       setTimeout(() => {
-        if (user?.role === 'TEACHER') {
+        if (user?.role === 'ADMIN') {
+          navigate('/admin');
+        } else if (user?.role === 'TEACHER') {
           navigate('/teacher');
         } else {
           navigate('/student');

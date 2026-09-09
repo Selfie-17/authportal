@@ -51,9 +51,9 @@ class CustomOAuth2UserServiceTest {
         when(mockOAuth2User.getAttribute("name")).thenReturn("Selva");
         when(mockOAuth2User.getAttribute("picture")).thenReturn("https://google.com/pic.jpg");
 
-        when(emailRoleResolver.isInstitutionalDomain("n210921@rguktn.ac.in")).thenReturn(true);
+        when(emailRoleResolver.isAllowedOAuthEmail("n210921@rguktn.ac.in")).thenReturn(true);
         when(userRepository.findByEmail("n210921@rguktn.ac.in")).thenReturn(Optional.empty());
-        when(emailRoleResolver.resolveRole("n210921@rguktn.ac.in")).thenReturn(Role.STUDENT);
+        when(emailRoleResolver.resolveOAuthRole("n210921@rguktn.ac.in")).thenReturn(Role.STUDENT);
 
         User savedUser = User.builder()
                 .id(10L)
@@ -79,10 +79,72 @@ class CustomOAuth2UserServiceTest {
     }
 
     @Test
-    @DisplayName("Should strictly reject non-institutional domain Google account")
-    void testRejectNonInstitutionalGoogleAccount() {
-        when(mockOAuth2User.getAttribute("email")).thenReturn("student@gmail.com");
-        when(emailRoleResolver.isInstitutionalDomain("student@gmail.com")).thenReturn(false);
+    @DisplayName("Should provision new Google Admin even with non-institutional email (e.g. @gmail.com)")
+    void testProcessNewAdminNonInstitutionalDomain() {
+        when(mockOAuth2User.getAttribute("email")).thenReturn("kampadevaselvaraj@gmail.com");
+        when(mockOAuth2User.getAttribute("sub")).thenReturn("google-admin-sub-1");
+        when(mockOAuth2User.getAttribute("name")).thenReturn("Deva Selvaraj");
+        when(mockOAuth2User.getAttribute("picture")).thenReturn(null);
+
+        when(emailRoleResolver.isAllowedOAuthEmail("kampadevaselvaraj@gmail.com")).thenReturn(true);
+        when(userRepository.findByEmail("kampadevaselvaraj@gmail.com")).thenReturn(Optional.empty());
+        when(emailRoleResolver.resolveOAuthRole("kampadevaselvaraj@gmail.com")).thenReturn(Role.ADMIN);
+
+        User savedUser = User.builder()
+                .id(11L)
+                .email("kampadevaselvaraj@gmail.com")
+                .name("Deva Selvaraj")
+                .googleId("google-admin-sub-1")
+                .role(Role.ADMIN)
+                .authProvider(AuthProvider.GOOGLE)
+                .enabled(true)
+                .build();
+
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+
+        OAuth2User result = customOAuth2UserService.processOAuth2User(mockOAuth2User);
+
+        assertNotNull(result);
+        OAuth2UserPrincipal principal = (OAuth2UserPrincipal) result;
+        assertEquals(Role.ADMIN, principal.getUser().getRole());
+    }
+
+    @Test
+    @DisplayName("Should provision new teacher for non-student @rguktn.ac.in account")
+    void testProcessNewTeacherGoogleUser() {
+        when(mockOAuth2User.getAttribute("email")).thenReturn("faculty@rguktn.ac.in");
+        when(mockOAuth2User.getAttribute("sub")).thenReturn("google-teacher-sub");
+        when(mockOAuth2User.getAttribute("name")).thenReturn("Prof. Smith");
+        when(mockOAuth2User.getAttribute("picture")).thenReturn(null);
+
+        when(emailRoleResolver.isAllowedOAuthEmail("faculty@rguktn.ac.in")).thenReturn(true);
+        when(userRepository.findByEmail("faculty@rguktn.ac.in")).thenReturn(Optional.empty());
+        when(emailRoleResolver.resolveOAuthRole("faculty@rguktn.ac.in")).thenReturn(Role.TEACHER);
+
+        User savedUser = User.builder()
+                .id(12L)
+                .email("faculty@rguktn.ac.in")
+                .name("Prof. Smith")
+                .googleId("google-teacher-sub")
+                .role(Role.TEACHER)
+                .authProvider(AuthProvider.GOOGLE)
+                .enabled(true)
+                .build();
+
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+
+        OAuth2User result = customOAuth2UserService.processOAuth2User(mockOAuth2User);
+
+        assertNotNull(result);
+        OAuth2UserPrincipal principal = (OAuth2UserPrincipal) result;
+        assertEquals(Role.TEACHER, principal.getUser().getRole());
+    }
+
+    @Test
+    @DisplayName("Should strictly reject unauthorized non-institutional Google account")
+    void testRejectUnauthorizedGoogleAccount() {
+        when(mockOAuth2User.getAttribute("email")).thenReturn("stranger@gmail.com");
+        when(emailRoleResolver.isAllowedOAuthEmail("stranger@gmail.com")).thenReturn(false);
 
         assertThrows(
                 OAuth2AuthenticationException.class,
@@ -99,7 +161,7 @@ class CustomOAuth2UserServiceTest {
         when(mockOAuth2User.getAttribute("name")).thenReturn("Admin Boss");
         when(mockOAuth2User.getAttribute("picture")).thenReturn(null);
 
-        when(emailRoleResolver.isInstitutionalDomain("admin@rguktn.ac.in")).thenReturn(true);
+        when(emailRoleResolver.isAllowedOAuthEmail("admin@rguktn.ac.in")).thenReturn(true);
 
         User existingAdmin = User.builder()
                 .id(1L)
@@ -119,8 +181,37 @@ class CustomOAuth2UserServiceTest {
         OAuth2UserPrincipal principal = (OAuth2UserPrincipal) result;
         assertEquals(Role.ADMIN, principal.getUser().getRole(), "ADMIN role must be preserved!");
         assertEquals("google-admin-sub", principal.getUser().getGoogleId());
-        // Verify role resolver was NEVER invoked for existing admin (no downgrade to student/teacher)
-        verify(emailRoleResolver, never()).resolveRole(any());
+        // Verify role resolver was NEVER invoked for existing admin (no downgrade)
+        verify(emailRoleResolver, never()).resolveOAuthRole(any());
+    }
+
+    @Test
+    @DisplayName("Promote existing student or teacher to ADMIN if their email is in configured Google admin list")
+    void testPromoteExistingUserToAdmin() {
+        when(mockOAuth2User.getAttribute("email")).thenReturn("uday@rguktn.ac.in");
+        when(mockOAuth2User.getAttribute("sub")).thenReturn("google-uday-sub");
+        when(mockOAuth2User.getAttribute("name")).thenReturn("Uday");
+        when(mockOAuth2User.getAttribute("picture")).thenReturn(null);
+
+        when(emailRoleResolver.isAllowedOAuthEmail("uday@rguktn.ac.in")).thenReturn(true);
+        when(emailRoleResolver.isGoogleAdmin("uday@rguktn.ac.in")).thenReturn(true);
+
+        User existingUser = User.builder()
+                .id(2L)
+                .email("uday@rguktn.ac.in")
+                .name("Uday")
+                .role(Role.TEACHER) // previously teacher
+                .authProvider(AuthProvider.LOCAL)
+                .enabled(true)
+                .build();
+
+        when(userRepository.findByEmail("uday@rguktn.ac.in")).thenReturn(Optional.of(existingUser));
+        when(userRepository.save(existingUser)).thenReturn(existingUser);
+
+        OAuth2User result = customOAuth2UserService.processOAuth2User(mockOAuth2User);
+
+        assertNotNull(result);
+        assertEquals(Role.ADMIN, existingUser.getRole(), "User must be promoted to ADMIN!");
     }
 
     @Test
@@ -131,7 +222,9 @@ class CustomOAuth2UserServiceTest {
         when(mockOAuth2User.getAttribute("name")).thenReturn("Selva");
         when(mockOAuth2User.getAttribute("picture")).thenReturn("https://avatar.png");
 
-        when(emailRoleResolver.isInstitutionalDomain("n210921@rguktn.ac.in")).thenReturn(true);
+        when(emailRoleResolver.isAllowedOAuthEmail("n210921@rguktn.ac.in")).thenReturn(true);
+        when(emailRoleResolver.isGoogleAdmin("n210921@rguktn.ac.in")).thenReturn(false);
+        when(emailRoleResolver.resolveOAuthRole("n210921@rguktn.ac.in")).thenReturn(Role.STUDENT);
 
         User existingLocalUser = User.builder()
                 .id(5L)

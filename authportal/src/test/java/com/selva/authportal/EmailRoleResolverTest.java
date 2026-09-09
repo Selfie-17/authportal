@@ -106,7 +106,91 @@ class EmailRoleResolverTest {
         );
 
         Role role = resolver.resolveRole("admin@rguktn.ac.in");
-        assertNotEquals(Role.ADMIN, role, "Email resolver must NEVER return Role.ADMIN");
+        assertNotEquals(Role.ADMIN, role, "Email resolver must NEVER return Role.ADMIN for local registration");
         assertEquals(Role.TEACHER, role);
+    }
+
+    @Test
+    @DisplayName("OAuth: Should recognize default configured Google admins regardless of domain")
+    void testGoogleAdminRecognition() {
+        assertTrue(emailRoleResolver.isGoogleAdmin("uday@rguktn.ac.in"));
+        assertTrue(emailRoleResolver.isGoogleAdmin("UDAY@RGUKTN.AC.IN"));
+        assertTrue(emailRoleResolver.isGoogleAdmin("kampadevaselvaraj@gmail.com"));
+        assertTrue(emailRoleResolver.isGoogleAdmin("KAMPADEVASELVARAJ@GMAIL.COM"));
+
+        assertFalse(emailRoleResolver.isGoogleAdmin("n210921@rguktn.ac.in"));
+        assertFalse(emailRoleResolver.isGoogleAdmin("random@gmail.com"));
+        assertFalse(emailRoleResolver.isGoogleAdmin(null));
+    }
+
+    @Test
+    @DisplayName("OAuth: isAllowedOAuthEmail should allow institutional domain and configured admins only")
+    void testAllowedOAuthEmail() {
+        // Admins allowed
+        assertTrue(emailRoleResolver.isAllowedOAuthEmail("uday@rguktn.ac.in"));
+        assertTrue(emailRoleResolver.isAllowedOAuthEmail("kampadevaselvaraj@gmail.com"));
+
+        // Institutional users allowed
+        assertTrue(emailRoleResolver.isAllowedOAuthEmail("n210921@rguktn.ac.in"));
+        assertTrue(emailRoleResolver.isAllowedOAuthEmail("teacher@rguktn.ac.in"));
+
+        // Non-institutional, non-admin disallowed
+        assertFalse(emailRoleResolver.isAllowedOAuthEmail("stranger@gmail.com"));
+        assertFalse(emailRoleResolver.isAllowedOAuthEmail("student@yahoo.com"));
+        assertFalse(emailRoleResolver.isAllowedOAuthEmail(null));
+    }
+
+    @ParameterizedTest(name = "OAuth Admin: {0}")
+    @ValueSource(strings = {
+            "uday@rguktn.ac.in",
+            "UDAY@rguktn.ac.in",
+            "kampadevaselvaraj@gmail.com",
+            "KampadevaSelvaraj@gmail.com"
+    })
+    @DisplayName("OAuth: Should resolve configured admins to ADMIN role")
+    void testOAuthResolveAdmin(String email) {
+        Role role = emailRoleResolver.resolveOAuthRole(email);
+        assertEquals(Role.ADMIN, role);
+    }
+
+    @ParameterizedTest(name = "OAuth Student: {0}")
+    @ValueSource(strings = {
+            "n210921@rguktn.ac.in",
+            "N210921@rguktn.ac.in",
+            "n123456@rguktn.ac.in",
+            "N999999@rguktn.ac.in"
+    })
+    @DisplayName("OAuth: Should resolve student pattern to STUDENT role")
+    void testOAuthResolveStudent(String email) {
+        Role role = emailRoleResolver.resolveOAuthRole(email);
+        assertEquals(Role.STUDENT, role);
+    }
+
+    @ParameterizedTest(name = "OAuth Teacher (any other @rguktn.ac.in): {0}")
+    @ValueSource(strings = {
+            "faculty@rguktn.ac.in",
+            "FACULTY@RGUKTN.AC.IN",
+            "dean@rguktn.ac.in",
+            "unregistered.staff@rguktn.ac.in",
+            "hod.ece@rguktn.ac.in"
+    })
+    @DisplayName("OAuth: Should resolve any other @rguktn.ac.in email to TEACHER role")
+    void testOAuthResolveTeacher(String email) {
+        Role role = emailRoleResolver.resolveOAuthRole(email);
+        assertEquals(Role.TEACHER, role);
+    }
+
+    @ParameterizedTest(name = "OAuth Unauthorized: {0}")
+    @ValueSource(strings = {
+            "stranger@gmail.com",
+            "student@yahoo.com",
+            "admin@othercollege.ac.in"
+    })
+    @DisplayName("OAuth: Should reject unauthorized non-institutional non-admin accounts")
+    void testOAuthRejectUnauthorized(String email) {
+        assertThrows(
+                InvalidInstitutionalEmailException.class,
+                () -> emailRoleResolver.resolveOAuthRole(email)
+        );
     }
 }
