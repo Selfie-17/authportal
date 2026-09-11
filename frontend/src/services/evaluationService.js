@@ -117,4 +117,24 @@ export const evaluationService = {
     }
     return data;
   },
+
+  /**
+   * Deletes a student's evaluation report for a specific week, or all reports if week is omitted.
+   */
+  async deleteStudentReport(studentId, week) {
+    const params = new URLSearchParams({ studentId });
+    if (week) params.append('week', week);
+    const url = `${API_ENDPOINTS.TEACHER_EVALUATIONS_REPORT}?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || `Failed to delete evaluation report for ${studentId}.`);
+    }
+    return await response.json();
+  },
 };

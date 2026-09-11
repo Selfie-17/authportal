@@ -84,4 +84,27 @@ public class TeacherEvaluationController {
         TeacherFeedbackResponse response = evaluationService.saveFeedback(request, teacherEmail);
         return ResponseEntity.ok(response);
     }
+
+    /**
+     * Deletes a student's evaluation report for a specific week, or all reports if week is not specified.
+     */
+    @DeleteMapping("/report")
+    public ResponseEntity<ApiResponse> deleteStudentReport(
+            @RequestParam("studentId") String studentId,
+            @RequestParam(value = "week", required = false) String week
+    ) {
+        if (week != null && !week.trim().isEmpty()) {
+            evaluationService.deleteStudentReport(studentId, week);
+            return ResponseEntity.ok(ApiResponse.builder()
+                    .success(true)
+                    .message("Evaluation report for student " + studentId + " (" + week + ") deleted successfully.")
+                    .build());
+        } else {
+            evaluationService.deleteAllReportsForStudent(studentId);
+            return ResponseEntity.ok(ApiResponse.builder()
+                    .success(true)
+                    .message("All evaluation reports for student " + studentId + " deleted successfully.")
+                    .build());
+        }
+    }
 }

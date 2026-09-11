@@ -19,6 +19,8 @@ import java.util.Map;
 public class TeacherEvaluationRowDTO {
     private int rNo;
     private String studentId;
+    private String studentName;
+    private String profilePicture;
     @Builder.Default
     private Map<String, EvaluationCellDTO> evaluations = new HashMap<>();
 }

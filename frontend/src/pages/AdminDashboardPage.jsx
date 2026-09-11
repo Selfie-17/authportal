@@ -1,8 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Navbar from '../components/Navbar';
+import AdminStatCard from '../components/admin/AdminStatCard';
+import RoleBadge from '../components/admin/RoleBadge';
+import StatusBadge from '../components/admin/StatusBadge';
+import UserActionsMenu from '../components/admin/UserActionsMenu';
+import Pagination from '../components/admin/Pagination';
 import { adminService } from '../services/adminService';
 import { authService } from '../services/authService';
-
+import { extractStudentIdFromEmail } from '../utils/studentDataHelper';
+import '../styles/portal.css';
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions'
@@ -20,6 +26,10 @@ export default function AdminDashboardPage() {
   const [userRoleFilter, setUserRoleFilter] = useState('');
   const [usersLoading, setUsersLoading] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+
+  // Pagination State for Users
+  const [currentPage, setCurrentPage] = useState(1);
+  const USERS_PER_PAGE = 8;
 
   // New User Form State
   const [newName, setNewName] = useState('');
@@ -60,6 +70,7 @@ export default function AdminDashboardPage() {
         role: userRoleFilter || undefined,
       });
       setUsers(data);
+      setCurrentPage(1); // Reset to page 1 on query/filter change
     } catch (err) {
       setBannerErr(err.message || 'Failed to load users.');
     } finally {
@@ -96,6 +107,12 @@ export default function AdminDashboardPage() {
     }
   }, [activeTab, loadUsers, loadSubmissions]);
 
+  // Client-side pagination slicing
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * USERS_PER_PAGE;
+    return users.slice(start, start + USERS_PER_PAGE);
+  }, [users, currentPage]);
+
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setAddUserError(null);
@@ -113,7 +130,7 @@ export default function AdminDashboardPage() {
       setNewEmail('');
       setNewPassword('');
       setNewRole('STUDENT');
-      setBannerMsg('User successfully provisioned.');
+      setBannerMsg('User account successfully provisioned.');
       loadUsers();
       loadStats();
     } catch (err) {
@@ -168,457 +185,600 @@ export default function AdminDashboardPage() {
     <div className="portal-layout">
       <Navbar />
 
-      <main className="portal-container" style={{ maxWidth: '1200px', margin: '2rem auto' }}>
-        <div className="portal-header">
-          <div>
-            <h1 className="portal-title">Administrator Console</h1>
-            <p className="portal-subtitle">Institutional user administration and submission oversight</p>
-          </div>
-
-        <div>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setShowAddUserModal(true)}
-            style={{ width: 'auto', padding: '0.65rem 1.25rem' }}
-          >
-            + Add New User
-          </button>
-        </div>
-      </div>
-
-      {bannerMsg && (
-        <div className="alert alert-success" style={{ marginBottom: '1.5rem' }}>
-          <span className="alert-icon">✓</span>
-          <span>{bannerMsg}</span>
-          <button type="button" onClick={() => setBannerMsg(null)} style={{ background: 'none', border: 'none', color: 'inherit', marginLeft: 'auto', cursor: 'pointer' }}>×</button>
-        </div>
-      )}
-      {bannerErr && (
-        <div className="alert alert-error" style={{ marginBottom: '1.5rem' }}>
-          <span className="alert-icon">⚠️</span>
-          <span>{bannerErr}</span>
-          <button type="button" onClick={() => setBannerErr(null)} style={{ background: 'none', border: 'none', color: 'inherit', marginLeft: 'auto', cursor: 'pointer' }}>×</button>
-        </div>
-      )}
-
-      {/* Metrics Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-        <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Users</p>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '2rem', fontWeight: 700, color: 'var(--color-primary)' }}>{stats.totalUsers}</p>
-        </div>
-        <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Students</p>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '2rem', fontWeight: 700, color: '#3b82f6' }}>{stats.studentCount}</p>
-        </div>
-        <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Teachers</p>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '2rem', fontWeight: 700, color: '#10b981' }}>{stats.teacherCount}</p>
-        </div>
-        <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Administrators</p>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '2rem', fontWeight: 700, color: '#8b5cf6' }}>{stats.adminCount}</p>
-        </div>
-        <div className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Submissions</p>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '2rem', fontWeight: 700, color: '#f59e0b' }}>{stats.totalSubmissions}</p>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border)', marginBottom: '1.5rem' }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('users')}
-          style={{
-            padding: '0.75rem 1.5rem',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'users' ? '2px solid var(--color-primary)' : '2px solid transparent',
-            color: activeTab === 'users' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          User Accounts ({stats.totalUsers})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('submissions')}
-          style={{
-            padding: '0.75rem 1.5rem',
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'submissions' ? '2px solid var(--color-primary)' : '2px solid transparent',
-            color: activeTab === 'submissions' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          All Submissions ({stats.totalSubmissions})
-        </button>
-      </div>
-
-      {/* User Management Tab Content */}
-      {activeTab === 'users' && (
-        <div className="card">
-          {/* User Filters */}
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-            <div style={{ flex: 1, minWidth: '220px' }}>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search by name or email..."
-                value={userQuery}
-                onChange={(e) => setUserQuery(e.target.value)}
-              />
-            </div>
-            <div style={{ width: '180px' }}>
-              <select
-                className="form-select"
-                value={userRoleFilter}
-                onChange={(e) => setUserRoleFilter(e.target.value)}
-              >
-                <option value="">All Roles</option>
-                <option value="STUDENT">Students</option>
-                <option value="TEACHER">Teachers</option>
-                <option value="ADMIN">Administrators</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Users Table */}
-          {usersLoading ? (
-            <div style={{ textAlign: 'center', padding: '3rem 0' }}>
-              <div className="spinner" style={{ margin: '0 auto 1rem' }} />
-              <p style={{ color: 'var(--color-text-secondary)' }}>Loading user accounts...</p>
-            </div>
-          ) : users.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--color-text-secondary)' }}>
-              No user accounts found matching your search.
-            </div>
-          ) : (
-            <div className="history-table-wrapper">
-              <table className="history-table">
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Provider</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id}>
-                      <td style={{ fontWeight: 500 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                          <div
-                            style={{
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '50%',
-                              background: 'var(--color-primary)',
-                              color: '#fff',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '0.8rem',
-                              fontWeight: 700,
-                            }}
-                          >
-                            {u.name ? u.name.charAt(0).toUpperCase() : 'U'}
-                          </div>
-                          <span>{u.name}</span>
-                          {u.id === currentUser.id && (
-                            <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>(You)</span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ color: 'var(--color-text-secondary)' }}>{u.email}</td>
-                      <td>
-                        <select
-                          className="form-select"
-                          value={u.role}
-                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                          style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', width: 'auto' }}
-                        >
-                          <option value="STUDENT">STUDENT</option>
-                          <option value="TEACHER">TEACHER</option>
-                          <option value="ADMIN">ADMIN</option>
-                        </select>
-                      </td>
-                      <td>
-                        <span className="file-chip" style={{ fontSize: '0.75rem' }}>
-                          {u.authProvider}
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.35rem',
-                            fontSize: '0.85rem',
-                            color: u.enabled ? '#10b981' : '#ef4444',
-                            fontWeight: 500,
-                          }}
-                        >
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: u.enabled ? '#10b981' : '#ef4444' }} />
-                          {u.enabled ? 'Active' : 'Disabled'}
-                        </span>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          onClick={() => handleStatusToggle(u.id, u.enabled)}
-                          disabled={u.id === currentUser.id && u.enabled}
-                          style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', width: 'auto' }}
-                        >
-                          {u.enabled ? 'Disable' : 'Enable'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Submissions Management Tab Content */}
-      {activeTab === 'submissions' && (
-        <div className="card">
-          {/* Submissions Filter Bar */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
-            <div>
-              <label className="form-label" style={{ fontSize: '0.8rem' }}>Week</label>
-              <select className="form-select" value={subWeek} onChange={(e) => setSubWeek(e.target.value)}>
-                <option value="">All Weeks</option>
-                {[...Array(12)].map((_, i) => (
-                  <option key={i + 1} value={i + 1}>Week {i + 1}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="form-label" style={{ fontSize: '0.8rem' }}>Year</label>
-              <select className="form-select" value={subYear} onChange={(e) => setSubYear(e.target.value)}>
-                <option value="">All Years</option>
-                <option value="E1">E1</option>
-                <option value="E2">E2</option>
-                <option value="E3">E3</option>
-                <option value="E4">E4</option>
-              </select>
-            </div>
-            <div>
-              <label className="form-label" style={{ fontSize: '0.8rem' }}>Section</label>
-              <select className="form-select" value={subSection} onChange={(e) => setSubSection(e.target.value)}>
-                <option value="">All Sections</option>
-                {[1, 2, 3, 4, 5, 6].map((s) => (
-                  <option key={s} value={s}>Section {s}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="form-label" style={{ fontSize: '0.8rem' }}>Student ID</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="e.g. N210001"
-                value={subStudentId}
-                onChange={(e) => setSubStudentId(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Submissions Table */}
-          {subLoading ? (
-            <div style={{ textAlign: 'center', padding: '3rem 0' }}>
-              <div className="spinner" style={{ margin: '0 auto 1rem' }} />
-              <p style={{ color: 'var(--color-text-secondary)' }}>Loading submissions...</p>
-            </div>
-          ) : submissions.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--color-text-secondary)' }}>
-              No submissions found matching criteria.
-            </div>
-          ) : (
-            <div className="history-table-wrapper">
-              <table className="history-table">
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>Week</th>
-                    <th>Year</th>
-                    <th>Section</th>
-                    <th>Files</th>
-                    <th>Rev</th>
-                    <th>Submitted</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {submissions.map((sub) => (
-                    <tr key={sub.id}>
-                      <td style={{ fontWeight: 600 }}>{sub.studentId}</td>
-                      <td>Week {sub.week}</td>
-                      <td>{sub.year}</td>
-                      <td>Sec {sub.section}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                          {sub.files?.map((f) => (
-                            <span key={f.id} className="file-chip" style={{ fontSize: '0.75rem' }}>
-                              {f.originalFilename}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>v{sub.version}</td>
-                      <td style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                        {new Date(sub.createdAt).toLocaleDateString()}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => handleDeleteSubmission(sub.id)}
-                          style={{
-                            padding: '0.35rem 0.65rem',
-                            fontSize: '0.8rem',
-                            background: 'rgba(239, 68, 68, 0.1)',
-                            color: '#ef4444',
-                            border: '1px solid rgba(239, 68, 68, 0.3)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Add User Modal */}
-      {showAddUserModal && (
+      <main className="portal-container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1.5rem 4rem' }}>
+        {/* Top Header with Primary Action Button */}
         <div
           style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.65)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            backdropFilter: 'blur(4px)',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            marginBottom: '1.75rem',
           }}
         >
-          <div className="card" style={{ width: '100%', maxWidth: '480px', margin: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>Provision New User</h2>
-              <button
-                type="button"
-                onClick={() => setShowAddUserModal(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
-              >
-                ×
-              </button>
+          <div>
+            <h1 className="portal-title" style={{ fontSize: '1.65rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+              Administrator Console
+            </h1>
+            <p className="portal-subtitle" style={{ fontSize: '0.9rem', color: '#64748b', margin: '0.35rem 0 0' }}>
+              Manage institutional users, roles, account statuses, and oversee laboratory submissions.
+            </p>
+          </div>
+
+          <div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowAddUserModal(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.65rem 1.35rem',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                borderRadius: '8px',
+              }}
+            >
+              <span>+</span> Add New User
+            </button>
+          </div>
+        </div>
+
+        {/* Global Feedback Banners */}
+        {bannerMsg && (
+          <div className="alert-message success" style={{ marginBottom: '1.5rem' }}>
+            <span>✅</span>
+            <div>{bannerMsg}</div>
+            <button
+              type="button"
+              onClick={() => setBannerMsg(null)}
+              style={{ background: 'none', border: 'none', color: 'inherit', marginLeft: 'auto', cursor: 'pointer' }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {bannerErr && (
+          <div className="alert-message error" style={{ marginBottom: '1.5rem' }}>
+            <span>⚠️</span>
+            <div>{bannerErr}</div>
+            <button
+              type="button"
+              onClick={() => setBannerErr(null)}
+              style={{ background: 'none', border: 'none', color: 'inherit', marginLeft: 'auto', cursor: 'pointer' }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Five Modern Metric Cards */}
+        <div className="admin-stats-grid">
+          <AdminStatCard
+            icon="👥"
+            label="Total Users"
+            value={stats.totalUsers}
+            subtitle="All registered accounts"
+            accentColor="#2563eb"
+          />
+          <AdminStatCard
+            icon="🎓"
+            label="Students"
+            value={stats.studentCount}
+            subtitle="Active lab learners"
+            accentColor="#3b82f6"
+          />
+          <AdminStatCard
+            icon="👨‍🏫"
+            label="Teachers"
+            value={stats.teacherCount}
+            subtitle="Faculty & evaluators"
+            accentColor="#10b981"
+          />
+          <AdminStatCard
+            icon="🛡️"
+            label="Administrators"
+            value={stats.adminCount}
+            subtitle="System controllers"
+            accentColor="#8b5cf6"
+          />
+          <AdminStatCard
+            icon="📦"
+            label="Submissions"
+            value={stats.totalSubmissions}
+            subtitle="C-program submissions"
+            accentColor="#f59e0b"
+          />
+        </div>
+
+        {/* Modern Tabs Navigation */}
+        <div className="admin-tabs-nav">
+          <button
+            type="button"
+            className={`admin-tab-btn ${activeTab === 'users' ? 'active' : ''}`}
+            onClick={() => setActiveTab('users')}
+          >
+            <span>User Accounts</span>
+            <span className="admin-tab-badge">{stats.totalUsers}</span>
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${activeTab === 'submissions' ? 'active' : ''}`}
+            onClick={() => setActiveTab('submissions')}
+          >
+            <span>All Submissions</span>
+            <span className="admin-tab-badge">{stats.totalSubmissions}</span>
+          </button>
+        </div>
+
+        {/* ====================================================================== */}
+        {/* TAB 1: USER MANAGEMENT (MODERN HYBRID CARD/TABLE)                      */}
+        {/* ====================================================================== */}
+        {activeTab === 'users' && (
+          <div className="admin-card-container">
+            {/* Header Description */}
+            <div className="admin-card-header-bar">
+              <h2 className="admin-card-header-title">User Management</h2>
+              <p className="admin-card-header-desc">
+                View, filter, provision, update roles, and manage active status for all institutional users.
+              </p>
             </div>
 
-            {addUserError && (
-              <div className="alert alert-error" style={{ marginBottom: '1.25rem' }}>
-                <span className="alert-icon">⚠️</span>
-                <span>{addUserError}</span>
+            {/* Filter and Search Bar */}
+            <div className="admin-filters-bar">
+              <div className="admin-search-wrapper">
+                <span className="search-icon">🔍</span>
+                <input
+                  type="text"
+                  className="admin-search-input"
+                  placeholder="Search by name, email, or Student ID..."
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)}
+                />
+                {userQuery && (
+                  <button
+                    type="button"
+                    className="btn-clear-search"
+                    onClick={() => setUserQuery('')}
+                    title="Clear search text"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <select
+                  className="admin-role-select"
+                  value={userRoleFilter}
+                  onChange={(e) => setUserRoleFilter(e.target.value)}
+                >
+                  <option value="">All Roles</option>
+                  <option value="STUDENT">Students</option>
+                  <option value="TEACHER">Teachers</option>
+                  <option value="ADMIN">Administrators</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Users Table / Loading / Empty */}
+            {usersLoading ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem' }}>
+                <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+                <p style={{ color: '#64748b' }}>Loading institutional user accounts...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#64748b' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔍</div>
+                <h4 style={{ color: '#1e293b', marginBottom: '0.25rem' }}>No user accounts found</h4>
+                <p style={{ fontSize: '0.85rem' }}>No institutional accounts matched your current query or role filter.</p>
+                {(userQuery || userRoleFilter) && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setUserQuery('');
+                      setUserRoleFilter('');
+                    }}
+                    style={{ marginTop: '1rem', padding: '0.4rem 0.85rem' }}
+                  >
+                    Clear Filter
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="modern-table-responsive">
+                <table className="modern-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '50px' }}>#</th>
+                      <th>User</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Provider</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right', paddingRight: '1.75rem' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedUsers.map((u, idx) => {
+                      const absoluteIndex = (currentPage - 1) * USERS_PER_PAGE + idx + 1;
+                      const studentId = extractStudentIdFromEmail(u.email);
+                      const isCurrentUser = u.id === currentUser.id;
+
+                      // Initials for avatar
+                      const initials = u.name
+                        ? u.name
+                            .split(' ')
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((n) => n[0].toUpperCase())
+                            .join('')
+                        : 'U';
+
+                      return (
+                        <tr key={u.id}>
+                          <td style={{ color: '#94a3b8', fontWeight: 600, fontSize: '0.8rem' }}>
+                            {absoluteIndex}
+                          </td>
+
+                          {/* User Identity Column: Avatar + Name + Student ID underneath */}
+                          <td>
+                            <div className="user-identity-cell">
+                              {u.profilePicture ? (
+                                <img
+                                  src={u.profilePicture}
+                                  alt={u.name}
+                                  className="user-avatar-circle"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              ) : (
+                                <div className="user-avatar-circle" aria-hidden="true">
+                                  {initials}
+                                </div>
+                              )}
+
+                              <div className="user-identity-text">
+                                <div className="user-name-row">
+                                  <span className="user-name-bold">{u.name}</span>
+                                  {isCurrentUser && <span className="user-you-tag">(You)</span>}
+                                </div>
+                                {studentId ? (
+                                  <span className="user-id-subtext">{studentId}</span>
+                                ) : (
+                                  <span className="user-id-subtext" style={{ opacity: 0.6 }}>
+                                    {u.role ? u.role.toLowerCase() : 'user'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Email */}
+                          <td style={{ color: '#475569', fontSize: '0.85rem' }}>{u.email}</td>
+
+                          {/* Role Badge */}
+                          <td>
+                            <RoleBadge role={u.role} />
+                          </td>
+
+                          {/* Auth Provider */}
+                          <td>
+                            <span className={`provider-badge ${u.authProvider === 'GOOGLE' ? 'google' : ''}`}>
+                              {u.authProvider === 'GOOGLE' ? 'G Google' : u.authProvider || 'LOCAL'}
+                            </span>
+                          </td>
+
+                          {/* Status */}
+                          <td>
+                            <StatusBadge enabled={u.enabled} />
+                          </td>
+
+                          {/* Actions: Three-dot menu */}
+                          <td style={{ textAlign: 'right', paddingRight: '1.75rem' }}>
+                            <UserActionsMenu
+                              user={u}
+                              isCurrentUser={isCurrentUser}
+                              onRoleChange={handleRoleChange}
+                              onStatusToggle={handleStatusToggle}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
 
-            <form onSubmit={handleCreateUser}>
-              <div className="form-group" style={{ marginBottom: '1rem' }}>
-                <label className="form-label" htmlFor="new-user-name">Full Name</label>
-                <input
-                  id="new-user-name"
-                  type="text"
-                  className="form-input"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. Jane Doe"
-                  required
-                />
-              </div>
+            {/* Pagination Controls */}
+            <Pagination
+              currentPage={currentPage}
+              totalItems={users.length}
+              itemsPerPage={USERS_PER_PAGE}
+              onPageChange={(p) => setCurrentPage(p)}
+            />
+          </div>
+        )}
 
-              <div className="form-group" style={{ marginBottom: '1rem' }}>
-                <label className="form-label" htmlFor="new-user-email">Institutional Email</label>
-                <input
-                  id="new-user-email"
-                  type="email"
-                  className="form-input"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="e.g. user@rguktn.ac.in"
-                  required
-                />
-              </div>
+        {/* ====================================================================== */}
+        {/* TAB 2: ALL SUBMISSIONS (MODERNIZED CARD/TABLE)                         */}
+        {/* ====================================================================== */}
+        {activeTab === 'submissions' && (
+          <div className="admin-card-container">
+            {/* Header */}
+            <div className="admin-card-header-bar">
+              <h2 className="admin-card-header-title">All Lab Submissions</h2>
+              <p className="admin-card-header-desc">
+                Filter and oversee student laboratory C-program uploads across curriculum weeks, years, and sections.
+              </p>
+            </div>
 
-              <div className="form-group" style={{ marginBottom: '1rem' }}>
-                <label className="form-label" htmlFor="new-user-password">Initial Password</label>
-                <input
-                  id="new-user-password"
-                  type="password"
-                  className="form-input"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Min 8 characters"
-                  required
-                />
-              </div>
+            {/* Submissions Filter Bar */}
+            <div className="admin-filters-bar">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', width: '100%' }}>
+                <div>
+                  <label className="filter-label" style={{ fontSize: '0.75rem' }}>Week</label>
+                  <select
+                    className="filter-select"
+                    value={subWeek}
+                    onChange={(e) => setSubWeek(e.target.value)}
+                  >
+                    <option value="">All Weeks</option>
+                    {[...Array(12)].map((_, i) => (
+                      <option key={i + 1} value={i + 1}>Week {i + 1}</option>
+                    ))}
+                  </select>
+                </div>
 
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="form-label" htmlFor="new-user-role">System Role</label>
-                <select
-                  id="new-user-role"
-                  className="form-select"
-                  value={newRole}
-                  onChange={(e) => setNewRole(e.target.value)}
-                >
-                  <option value="STUDENT">STUDENT</option>
-                  <option value="TEACHER">TEACHER</option>
-                  <option value="ADMIN">ADMIN</option>
-                </select>
-              </div>
+                <div>
+                  <label className="filter-label" style={{ fontSize: '0.75rem' }}>Year</label>
+                  <select
+                    className="filter-select"
+                    value={subYear}
+                    onChange={(e) => setSubYear(e.target.value)}
+                  >
+                    <option value="">All Years</option>
+                    <option value="E1">Engineering 1 (E1)</option>
+                    <option value="E2">Engineering 2 (E2)</option>
+                    <option value="E3">Engineering 3 (E3)</option>
+                    <option value="E4">Engineering 4 (E4)</option>
+                  </select>
+                </div>
 
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                <div>
+                  <label className="filter-label" style={{ fontSize: '0.75rem' }}>Section</label>
+                  <select
+                    className="filter-select"
+                    value={subSection}
+                    onChange={(e) => setSubSection(e.target.value)}
+                  >
+                    <option value="">All Sections</option>
+                    {[1, 2, 3, 4, 5, 6].map((s) => (
+                      <option key={s} value={s}>Section {s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="filter-label" style={{ fontSize: '0.75rem' }}>Student ID</label>
+                  <input
+                    type="text"
+                    className="filter-search-input"
+                    placeholder="e.g. N210001"
+                    value={subStudentId}
+                    onChange={(e) => setSubStudentId(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Submissions Table */}
+            {subLoading ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem' }}>
+                <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+                <p style={{ color: '#64748b' }}>Loading submissions...</p>
+              </div>
+            ) : submissions.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#64748b' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔍</div>
+                <h4 style={{ color: '#1e293b', marginBottom: '0.25rem' }}>No submissions found</h4>
+                <p style={{ fontSize: '0.85rem' }}>No student submissions matched the selected filter criteria.</p>
+              </div>
+            ) : (
+              <div className="modern-table-responsive">
+                <table className="modern-table">
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Week</th>
+                      <th>Year</th>
+                      <th>Section</th>
+                      <th>Files ({submissions.reduce((acc, s) => acc + (s.files?.length || 0), 0)})</th>
+                      <th>Rev</th>
+                      <th>Submitted</th>
+                      <th style={{ textAlign: 'right', paddingRight: '1.5rem' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {submissions.map((sub) => (
+                      <tr key={sub.id}>
+                        <td>
+                          <code className="student-id-badge">{sub.studentId}</code>
+                        </td>
+                        <td>Week {sub.week}</td>
+                        <td>{sub.year}</td>
+                        <td>Sec {sub.section}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            {sub.files?.map((f) => (
+                              <span
+                                key={f.id}
+                                className="file-chip"
+                                style={{
+                                  fontSize: '0.75rem',
+                                  padding: '0.2rem 0.5rem',
+                                  background: '#f1f5f9',
+                                  border: '1px solid #e2e8f0',
+                                  borderRadius: '4px',
+                                }}
+                              >
+                                {f.originalFilename}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="revision-badge">v{sub.version}</span>
+                        </td>
+                        <td style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                          {new Date(sub.createdAt).toLocaleDateString()}
+                        </td>
+                        <td style={{ textAlign: 'right', paddingRight: '1.5rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSubmission(sub.id)}
+                            style={{
+                              padding: '0.35rem 0.75rem',
+                              fontSize: '0.8rem',
+                              fontWeight: 600,
+                              background: '#fee2e2',
+                              color: '#dc2626',
+                              border: '1px solid #fecaca',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              transition: 'all 150ms ease',
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Add User Modal (Modernized) */}
+        {showAddUserModal && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(15, 23, 42, 0.65)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            <div
+              className="admin-card-container"
+              style={{ width: '100%', maxWidth: '480px', margin: '1rem', padding: '1.75rem' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>Provision New User</h2>
                 <button
                   type="button"
-                  className="btn btn-secondary"
                   onClick={() => setShowAddUserModal(false)}
-                  style={{ width: 'auto', padding: '0.65rem 1.25rem' }}
+                  style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: '#64748b', cursor: 'pointer' }}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={addUserLoading}
-                  style={{ width: 'auto', padding: '0.65rem 1.5rem' }}
-                >
-                  {addUserLoading ? 'Creating...' : 'Create Account'}
+                  ×
                 </button>
               </div>
-            </form>
+
+              {addUserError && (
+                <div className="alert-message error" style={{ marginBottom: '1.25rem' }}>
+                  <span>⚠️</span>
+                  <span>{addUserError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleCreateUser}>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="filter-label" htmlFor="new-user-name">Full Name</label>
+                  <input
+                    id="new-user-name"
+                    type="text"
+                    className="filter-search-input"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="e.g. Jane Doe"
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="filter-label" htmlFor="new-user-email">Institutional Email</label>
+                  <input
+                    id="new-user-email"
+                    type="email"
+                    className="filter-search-input"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="e.g. user@rguktn.ac.in"
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="filter-label" htmlFor="new-user-password">Initial Password</label>
+                  <input
+                    id="new-user-password"
+                    type="password"
+                    className="filter-search-input"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Min 8 characters"
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                  <label className="filter-label" htmlFor="new-user-role">System Role</label>
+                  <select
+                    id="new-user-role"
+                    className="filter-select"
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value)}
+                  >
+                    <option value="STUDENT">STUDENT</option>
+                    <option value="TEACHER">TEACHER</option>
+                    <option value="ADMIN">ADMIN</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowAddUserModal(false)}
+                    style={{ padding: '0.65rem 1.25rem' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={addUserLoading}
+                    style={{ padding: '0.65rem 1.5rem' }}
+                  >
+                    {addUserLoading ? 'Creating...' : 'Create Account'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
       </main>
     </div>
   );
 }
-

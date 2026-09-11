@@ -14,7 +14,13 @@ import { evaluationService } from '../services/evaluationService';
  *     - Multiline feedback text box
  *     - [Save Feedback] button
  */
-export default function TeacherReportView({ studentId, week, onBack, onFeedbackUpdated }) {
+export default function TeacherReportView({
+  studentId,
+  week,
+  onBack,
+  onFeedbackUpdated,
+  onReportDeleted,
+}) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,6 +31,7 @@ export default function TeacherReportView({ studentId, week, onBack, onFeedbackU
   const [savingFeedback, setSavingFeedback] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadReport();
@@ -71,6 +78,26 @@ export default function TeacherReportView({ studentId, week, onBack, onFeedbackU
     }
   };
 
+  const handleDeleteReport = async () => {
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete the ${week} evaluation report for student ${studentId}?\n\nThis action cannot be undone.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      setDeleting(true);
+      await evaluationService.deleteStudentReport(studentId, week);
+      if (onReportDeleted) {
+        onReportDeleted({ studentId, week });
+      } else {
+        onBack();
+      }
+    } catch (err) {
+      alert(`Failed to delete report: ${err.message || 'Unknown error'}`);
+      setDeleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="portal-card" style={{ padding: '3rem', textAlign: 'center' }}>
@@ -113,6 +140,15 @@ export default function TeacherReportView({ studentId, week, onBack, onFeedbackU
           <span className={`review-badge-header ${reviewed ? 'reviewed' : 'not-reviewed'}`}>
             {reviewed ? 'Reviewed ✓' : 'Not Reviewed'}
           </span>
+          <button
+            type="button"
+            className="btn-delete-report-danger"
+            onClick={handleDeleteReport}
+            disabled={deleting}
+            title={`Delete ${report.week} evaluation report for ${report.studentId}`}
+          >
+            <span>🗑️</span> {deleting ? 'Deleting...' : 'Delete Report'}
+          </button>
         </div>
       </div>
 
@@ -322,20 +358,30 @@ export default function TeacherReportView({ studentId, week, onBack, onFeedbackU
               />
             </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={savingFeedback}
-              >
-                {savingFeedback ? '💾 Saving...' : 'Save Feedback'}
-              </button>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={savingFeedback}
+                >
+                  {savingFeedback ? '💾 Saving...' : 'Save Feedback'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={onBack}
+                >
+                  Back to Table
+                </button>
+              </div>
               <button
                 type="button"
-                className="btn-secondary"
-                onClick={onBack}
+                className="btn-delete-report-danger"
+                onClick={handleDeleteReport}
+                disabled={deleting}
               >
-                Back to Table
+                <span>🗑️</span> {deleting ? 'Deleting...' : 'Delete Report'}
               </button>
             </div>
           </form>

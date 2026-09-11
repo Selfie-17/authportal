@@ -39,6 +39,8 @@ public class EvaluationService {
     private final StudentEvaluationRepository evaluationRepository;
     private final TeacherFeedbackRepository feedbackRepository;
     private final ObjectMapper objectMapper;
+    private final com.selva.authportal.repository.UserRepository userRepository;
+    private final com.selva.authportal.repository.SubmissionRepository submissionRepository;
 
     // Regex for parsing week identifier e.g. "week-01", "week-2", "Week 5", "week_10", "1"
     private static final Pattern WEEK_NUMBER_PATTERN = Pattern.compile("(?i)(?:week[_-]?0*(\\d+)|\\b(\\d+)\\b)");
@@ -306,17 +308,55 @@ public class EvaluationService {
                 .map(WeekInfo::displayName)
                 .collect(Collectors.toList());
 
+        // Pre-load student details from UserRepository and SubmissionRepository
+        Map<String, com.selva.authportal.model.User> userMap = new HashMap<>();
+        try {
+            List<com.selva.authportal.model.User> allUsers = userRepository.findAll();
+            for (com.selva.authportal.model.User u : allUsers) {
+                if (u.getEmail() != null && u.getEmail().contains("@")) {
+                    String local = u.getEmail().split("@")[0].trim().toUpperCase();
+                    userMap.put(local, u);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not pre-load users for evaluation grid: {}", e.getMessage());
+        }
+
+        try {
+            List<com.selva.authportal.model.Submission> allSubs = submissionRepository.findAll();
+            for (com.selva.authportal.model.Submission sub : allSubs) {
+                if (sub.getStudentId() != null && sub.getUser() != null) {
+                    userMap.putIfAbsent(sub.getStudentId().trim().toUpperCase(), sub.getUser());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not pre-load submissions for evaluation grid: {}", e.getMessage());
+        }
+
         // Maintain student insertion order
         Map<String, TeacherEvaluationRowDTO> rowMap = new LinkedHashMap<>();
 
         for (StudentEvaluation eval : allEvaluations) {
             String studentId = eval.getStudentId();
+            com.selva.authportal.model.User matchedUser = userMap.get(studentId.toUpperCase());
+            String studentName = matchedUser != null ? matchedUser.getName() : null;
+            String profilePic = matchedUser != null ? matchedUser.getProfilePicture() : null;
+
             TeacherEvaluationRowDTO row = rowMap.computeIfAbsent(studentId, k -> TeacherEvaluationRowDTO.builder()
                     .rNo(rowMap.size() + 1)
                     .studentId(studentId)
+                    .studentName(studentName)
+                    .profilePicture(profilePic)
                     .evaluations(new HashMap<>())
                     .build()
             );
+
+            if (row.getStudentName() == null && studentName != null) {
+                row.setStudentName(studentName);
+            }
+            if (row.getProfilePicture() == null && profilePic != null) {
+                row.setProfilePicture(profilePic);
+            }
 
             TeacherFeedback fb = feedbackMap.get(studentId + "::" + eval.getWeek());
             boolean reviewed = (fb != null && fb.isReviewed());
@@ -429,5 +469,42 @@ public class EvaluationService {
                 .teacherEmail(saved.getTeacherEmail())
                 .updatedAt(saved.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * Deletes an evaluation report and associated teacher feedback for a specific (studentId, week).
+     */
+    @Transactional
+    public void deleteStudentReport(String studentId, String week) {
+        String normalizedId = studentId.trim().toUpperCase();
+        WeekInfo weekInfo = normalizeWeek(week);
+
+        evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
+                .ifPresent(evaluationRepository::delete);
+
+        feedbackRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
+                .ifPresent(feedbackRepository::delete);
+
+        log.info("Deleted evaluation report and feedback for {} and {}", normalizedId, weekInfo.displayName());
+    }
+
+    /**
+     * Deletes all evaluation reports and feedbacks for a student.
+     */
+    @Transactional
+    public void deleteAllReportsForStudent(String studentId) {
+        String normalizedId = studentId.trim().toUpperCase();
+
+        List<StudentEvaluation> evals = evaluationRepository.findByStudentId(normalizedId);
+        if (!evals.isEmpty()) {
+            evaluationRepository.deleteAll(evals);
+        }
+
+        List<TeacherFeedback> fbs = feedbackRepository.findByStudentId(normalizedId);
+        if (!fbs.isEmpty()) {
+            feedbackRepository.deleteAll(fbs);
+        }
+
+        log.info("Deleted all evaluation reports and feedback for student {}", normalizedId);
     }
 }

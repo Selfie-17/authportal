@@ -23,6 +23,7 @@ public class SubmissionResponse {
     private Long userId;
     private String userName;
     private String userEmail;
+    private String userProfilePicture;
     private String studentId;
     private Integer week;
     private YearLevel year;
@@ -39,6 +40,7 @@ public class SubmissionResponse {
                 .userId(submission.getUser().getId())
                 .userName(submission.getUser().getName())
                 .userEmail(submission.getUser().getEmail())
+                .userProfilePicture(submission.getUser().getProfilePicture())
                 .studentId(submission.getStudentId())
                 .week(submission.getWeek())
                 .year(submission.getYear())

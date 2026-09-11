@@ -297,4 +297,57 @@ class EvaluationServiceTest {
         assertThat(report.getAssessment()).contains("Basic understanding demonstrated");
         assertThat(report.getSectionId()).isEqualTo("SEC1");
     }
+
+    @Test
+    @DisplayName("Delete student report for specific week and all reports for student")
+    void testDeleteStudentReportAndAllReports() throws IOException {
+        evaluationService.processJsonString(SAMPLE_WEEK_1_JSON);
+        evaluationService.processJsonString(SAMPLE_WEEK_2_JSON);
+
+        // Add feedback for N210921 Week 1
+        evaluationService.saveFeedback(
+                TeacherFeedbackRequest.builder()
+                        .studentId("N210921")
+                        .week("Week 1")
+                        .reviewed(true)
+                        .feedbackText("Initial feedback.")
+                        .build(),
+                "teacher@rguktn.ac.in"
+        );
+
+        // Both weeks should exist
+        assertThat(evaluationService.getStudentReport("N210921", "Week 1")).isNotNull();
+        assertThat(evaluationService.getStudentReport("N210921", "Week 2")).isNotNull();
+
+        // 1. Delete Week 1 report
+        evaluationService.deleteStudentReport("N210921", "Week 1");
+
+        // Week 1 should now throw ResourceNotFoundException
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.selva.authportal.exception.ResourceNotFoundException.class,
+                () -> evaluationService.getStudentReport("N210921", "Week 1")
+        );
+
+        // Week 2 remains intact
+        SingleStudentReportResponse week2Report = evaluationService.getStudentReport("N210921", "Week 2");
+        assertThat(week2Report).isNotNull();
+        assertThat(week2Report.getFinalScore()).isEqualTo("6.51 / 10");
+
+        // Grid should show null for Week 1, but Week 2 remains
+        TeacherEvaluationGridResponse grid = evaluationService.getEvaluationGrid();
+        TeacherEvaluationRowDTO row = grid.getRows().stream()
+                .filter(r -> r.getStudentId().equals("N210921"))
+                .findFirst().orElseThrow();
+        assertThat(row.getEvaluations().get("Week 1")).isNull();
+        assertThat(row.getEvaluations().get("Week 2")).isNotNull();
+
+        // 2. Delete all reports for student N210921
+        evaluationService.deleteAllReportsForStudent("N210921");
+
+        // Grid should no longer have N210921
+        TeacherEvaluationGridResponse updatedGrid = evaluationService.getEvaluationGrid();
+        boolean studentPresent = updatedGrid.getRows().stream()
+                .anyMatch(r -> r.getStudentId().equals("N210921"));
+        assertThat(studentPresent).isFalse();
+    }
 }
