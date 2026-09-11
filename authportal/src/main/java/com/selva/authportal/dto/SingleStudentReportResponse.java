@@ -33,6 +33,14 @@ public class SingleStudentReportResponse {
     // Detailed report content
     private String rawEvaluationMarkdown;
     private Map<String, Object> extraction;
+    private Map<String, Object> ocr;
+    private Map<String, Object> source;
+
+    // Student uploaded PDF submission mapping (derived from Submission -> SubmissionFile)
+    private boolean pdfAvailable;
+    private String pdfFilename;
+    private Long submissionId;
+    private Long submissionFileId;
 
     // Separate teacher feedback layer
     private boolean reviewed;

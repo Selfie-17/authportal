@@ -35,10 +35,20 @@ class EvaluationServiceTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private com.selva.authportal.repository.SubmissionRepository submissionRepository;
+
+    @Autowired
+    private com.selva.authportal.repository.UserRepository userRepository;
+
+    @Autowired
+    private StorageService storageService;
+
     @BeforeEach
     void cleanUp() {
         evaluationRepository.deleteAll();
         feedbackRepository.deleteAll();
+        submissionRepository.deleteAll();
     }
 
     private static final String SAMPLE_WEEK_1_JSON = """
@@ -349,5 +359,242 @@ class EvaluationServiceTest {
         boolean studentPresent = updatedGrid.getRows().stream()
                 .anyMatch(r -> r.getStudentId().equals("N210921"));
         assertThat(studentPresent).isFalse();
+    }
+
+    private static final String SAMPLE_WEEK_4_OCR_JSON = """
+            {
+              "section_id": "SEC2",
+              "week_id": "week-04",
+              "total_students": 1,
+              "students": [
+                {
+                  "student_id": "N241003",
+                  "section_id": "SEC2",
+                  "week_id": "week-04",
+                  "source": {
+                    "filename": "observation_report.pdf",
+                    "num_pages": 4
+                  },
+                  "ocr": {
+                    "status": "success",
+                    "text": "<!-- Page 1 -->\\n\\nObjective 1\\n\\nThe objective is to practice functions.\\n\\n<!-- Page 2 -->\\n\\nFactorial using recursion.",
+                    "num_pages": 4,
+                    "page_breakdown": [
+                      { "page": 1, "text": "Objective 1\\n\\nThe objective is to practice functions." },
+                      { "page": 2, "text": "Factorial using recursion." },
+                      { "page": 3, "text": "Armstrong number." },
+                      { "page": 4, "text": "Character frequency." }
+                    ]
+                  },
+                  "evaluation": "## 📊 Final Score\\n\\n### Overall Evaluation\\n\\n| Criterion | Score |\\n|---|---:|\\n| Objective of the Lab | 2 / 2 |\\n| Problem Understanding | 8 / 8 |\\n| Logic / Approach Used | 8 / 8 |\\n| Important Variables and Their Purpose | 1 / 8 |\\n| What I Observed | 8 / 8 |\\n| **Total** | **27 / 34** |\\n| **Final Score** | **7.94 / 10** |\\n\\n### Overall Assessment\\n\\nGood understanding with some incomplete explanations."
+                }
+              ]
+            }
+            """;
+
+    @Test
+    @DisplayName("OCR and Source metadata are correctly parsed from evaluation JSON")
+    void testOcrAndSourceParsedFromEvaluationJson() throws IOException {
+        evaluationService.processJsonString(SAMPLE_WEEK_4_OCR_JSON);
+
+        SingleStudentReportResponse report = evaluationService.getStudentReport("N241003", "Week 4");
+        assertThat(report).isNotNull();
+        assertThat(report.getStudentId()).isEqualTo("N241003");
+        assertThat(report.getWeek()).isEqualTo("Week 4");
+        assertThat(report.getFinalScore()).isEqualTo("7.94 / 10");
+
+        // Verify OCR metadata
+        assertThat(report.getOcr()).isNotNull();
+        assertThat(report.getOcr().get("status")).isEqualTo("success");
+        assertThat(report.getOcr().get("num_pages")).isEqualTo(4);
+        assertThat(report.getOcr().get("text")).asString().contains("Objective 1");
+        List<?> pageBreakdown = (List<?>) report.getOcr().get("page_breakdown");
+        assertThat(pageBreakdown).hasSize(4);
+
+        // Verify Source metadata
+        assertThat(report.getSource()).isNotNull();
+        assertThat(report.getSource().get("filename")).isEqualTo("observation_report.pdf");
+        assertThat(report.getSource().get("num_pages")).isEqualTo(4);
+
+        // No submission created yet -> pdfAvailable is false
+        assertThat(report.isPdfAvailable()).isFalse();
+        assertThat(report.getPdfFilename()).isNull();
+    }
+
+    @Test
+    @DisplayName("Exact PDF Mapping: Student + Week + Section maps to Submission -> SubmissionFile -> StorageKey")
+    void testExactPdfMapping_StudentWeekSection() throws Exception {
+        // 1. Create student User
+        com.selva.authportal.model.User user = userRepository.findByEmail("n241003@rguktn.ac.in")
+                .orElseGet(() -> userRepository.save(com.selva.authportal.model.User.builder()
+                        .name("Student N241003")
+                        .email("n241003@rguktn.ac.in")
+                        .role(com.selva.authportal.model.Role.STUDENT)
+                        .authProvider(com.selva.authportal.model.AuthProvider.LOCAL)
+                        .enabled(true)
+                        .build()));
+
+        // 2. Store dummy PDF file in storageService
+        String storageKey = "submissions/week-4/sec-2/N241003/observation_report.pdf";
+        byte[] dummyPdfContent = "%PDF-1.4 test observation report binary content".getBytes();
+        storageService.storeFile(
+                new java.io.ByteArrayInputStream(dummyPdfContent),
+                storageKey,
+                "application/pdf",
+                dummyPdfContent.length
+        );
+
+        // 3. Create Submission entity with SubmissionFile
+        com.selva.authportal.model.Submission submission = com.selva.authportal.model.Submission.builder()
+                .user(user)
+                .studentId("N241003")
+                .week(4)
+                .section(2)
+                .year(com.selva.authportal.model.YearLevel.E2)
+                .storagePath("submissions/week-4/sec-2/N241003")
+                .status(com.selva.authportal.model.SubmissionStatus.SUBMITTED)
+                .version(1)
+                .files(new java.util.ArrayList<>())
+                .build();
+
+        com.selva.authportal.model.SubmissionFile file = com.selva.authportal.model.SubmissionFile.builder()
+                .originalFilename("observation_report.pdf")
+                .storedFilename("observation_report.pdf")
+                .storageKey(storageKey)
+                .fileExtension(".pdf")
+                .fileType(com.selva.authportal.model.FileType.PDF_REPORT)
+                .fileSizeBytes((long) dummyPdfContent.length)
+                .build();
+        submission.addFile(file);
+        submissionRepository.save(submission);
+
+        // 4. Process evaluation JSON for N241003 + Week 4 + SEC2
+        evaluationService.processJsonString(SAMPLE_WEEK_4_OCR_JSON);
+
+        // 5. Verify getStudentReport returns exact PDF mapping
+        SingleStudentReportResponse report = evaluationService.getStudentReport("N241003", "Week 4");
+        assertThat(report.isPdfAvailable()).isTrue();
+        assertThat(report.getPdfFilename()).isEqualTo("observation_report.pdf");
+        assertThat(report.getSubmissionId()).isEqualTo(submission.getId());
+        assertThat(report.getSubmissionFileId()).isEqualTo(file.getId());
+
+        // 6. Verify loadStudentPdf streams the exact PDF
+        SubmissionService.DownloadableFile downloadable = evaluationService.loadStudentPdf("N241003", "Week 4");
+        assertThat(downloadable.filename()).isEqualTo("observation_report.pdf");
+        assertThat(downloadable.contentType()).isEqualTo("application/pdf");
+        byte[] readBytes = downloadable.resource().getInputStream().readAllBytes();
+        assertThat(readBytes).isEqualTo(dummyPdfContent);
+    }
+
+    @Test
+    @DisplayName("PDF Mapping: Different week does NOT map to Week 4 PDF")
+    void testPdfMapping_DifferentWeek_DoesNotMatch() throws Exception {
+        com.selva.authportal.model.User user = userRepository.findByEmail("n241003@rguktn.ac.in")
+                .orElseGet(() -> userRepository.save(com.selva.authportal.model.User.builder()
+                        .name("Student N241003")
+                        .email("n241003@rguktn.ac.in")
+                        .role(com.selva.authportal.model.Role.STUDENT)
+                        .authProvider(com.selva.authportal.model.AuthProvider.LOCAL)
+                        .enabled(true)
+                        .build()));
+
+        // Submission for Week 5
+        String storageKey = "submissions/week-5/sec-2/N241003/observation_report.pdf";
+        byte[] dummyPdfContent = "%PDF-1.4 week 5".getBytes();
+        storageService.storeFile(
+                new java.io.ByteArrayInputStream(dummyPdfContent),
+                storageKey,
+                "application/pdf",
+                dummyPdfContent.length
+        );
+
+        com.selva.authportal.model.Submission submissionWeek5 = com.selva.authportal.model.Submission.builder()
+                .user(user)
+                .studentId("N241003")
+                .week(5) // Week 5!
+                .section(2)
+                .year(com.selva.authportal.model.YearLevel.E2)
+                .storagePath("submissions/week-5/sec-2/N241003")
+                .status(com.selva.authportal.model.SubmissionStatus.SUBMITTED)
+                .version(1)
+                .files(new java.util.ArrayList<>())
+                .build();
+        com.selva.authportal.model.SubmissionFile file = com.selva.authportal.model.SubmissionFile.builder()
+                .originalFilename("observation_report.pdf")
+                .storedFilename("observation_report.pdf")
+                .storageKey(storageKey)
+                .fileExtension(".pdf")
+                .fileType(com.selva.authportal.model.FileType.PDF_REPORT)
+                .fileSizeBytes((long) dummyPdfContent.length)
+                .build();
+        submissionWeek5.addFile(file);
+        submissionRepository.save(submissionWeek5);
+
+        // Evaluation is for Week 4
+        evaluationService.processJsonString(SAMPLE_WEEK_4_OCR_JSON);
+
+        SingleStudentReportResponse report = evaluationService.getStudentReport("N241003", "Week 4");
+        assertThat(report.isPdfAvailable()).isFalse();
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.selva.authportal.exception.ResourceNotFoundException.class,
+                () -> evaluationService.loadStudentPdf("N241003", "Week 4")
+        );
+    }
+
+    @Test
+    @DisplayName("PDF Mapping: Different student does NOT map to N241003 PDF")
+    void testPdfMapping_DifferentStudent_DoesNotMatch() throws Exception {
+        com.selva.authportal.model.User user = userRepository.findByEmail("n241999@rguktn.ac.in")
+                .orElseGet(() -> userRepository.save(com.selva.authportal.model.User.builder()
+                        .name("Other Student")
+                        .email("n241999@rguktn.ac.in")
+                        .role(com.selva.authportal.model.Role.STUDENT)
+                        .authProvider(com.selva.authportal.model.AuthProvider.LOCAL)
+                        .enabled(true)
+                        .build()));
+
+        // Submission for N241999 on Week 4
+        String storageKey = "submissions/week-4/sec-2/N241999/observation_report.pdf";
+        byte[] dummyPdfContent = "%PDF-1.4 other student".getBytes();
+        storageService.storeFile(
+                new java.io.ByteArrayInputStream(dummyPdfContent),
+                storageKey,
+                "application/pdf",
+                dummyPdfContent.length
+        );
+
+        com.selva.authportal.model.Submission submissionOther = com.selva.authportal.model.Submission.builder()
+                .user(user)
+                .studentId("N241999") // Different student!
+                .week(4)
+                .section(2)
+                .year(com.selva.authportal.model.YearLevel.E2)
+                .storagePath("submissions/week-4/sec-2/N241999")
+                .status(com.selva.authportal.model.SubmissionStatus.SUBMITTED)
+                .version(1)
+                .files(new java.util.ArrayList<>())
+                .build();
+        com.selva.authportal.model.SubmissionFile file = com.selva.authportal.model.SubmissionFile.builder()
+                .originalFilename("observation_report.pdf")
+                .storedFilename("observation_report.pdf")
+                .storageKey(storageKey)
+                .fileExtension(".pdf")
+                .fileType(com.selva.authportal.model.FileType.PDF_REPORT)
+                .fileSizeBytes((long) dummyPdfContent.length)
+                .build();
+        submissionOther.addFile(file);
+        submissionRepository.save(submissionOther);
+
+        // Evaluation is for N241003
+        evaluationService.processJsonString(SAMPLE_WEEK_4_OCR_JSON);
+
+        SingleStudentReportResponse report = evaluationService.getStudentReport("N241003", "Week 4");
+        assertThat(report.isPdfAvailable()).isFalse();
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.selva.authportal.exception.ResourceNotFoundException.class,
+                () -> evaluationService.loadStudentPdf("N241003", "Week 4")
+        );
     }
 }

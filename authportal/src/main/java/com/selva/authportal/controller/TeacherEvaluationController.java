@@ -73,6 +73,22 @@ public class TeacherEvaluationController {
     }
 
     /**
+     * Streams the student's uploaded PDF lab report for inline browser viewing.
+     * Uses the authoritative mapping: Student + Week + Section -> Submission -> SubmissionFile(PDF_REPORT) -> Backblaze B2.
+     */
+    @GetMapping("/pdf")
+    public ResponseEntity<org.springframework.core.io.Resource> getStudentPdf(
+            @RequestParam("studentId") String studentId,
+            @RequestParam("week") String week
+    ) {
+        com.selva.authportal.service.SubmissionService.DownloadableFile downloadable = evaluationService.loadStudentPdf(studentId, week);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(downloadable.contentType()))
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + downloadable.filename() + "\"")
+                .body(downloadable.resource());
+    }
+
+    /**
      * Saves or updates teacher feedback (Reviewed: Yes/No, feedback text) for a Student ID and Week.
      */
     @PostMapping("/feedback")

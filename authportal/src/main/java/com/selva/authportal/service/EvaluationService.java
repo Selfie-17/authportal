@@ -5,17 +5,24 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.selva.authportal.dto.*;
 import com.selva.authportal.exception.ResourceNotFoundException;
+import com.selva.authportal.model.FileType;
 import com.selva.authportal.model.StudentEvaluation;
+import com.selva.authportal.model.Submission;
+import com.selva.authportal.model.SubmissionFile;
 import com.selva.authportal.model.TeacherFeedback;
+import com.selva.authportal.model.YearLevel;
 import com.selva.authportal.repository.StudentEvaluationRepository;
 import com.selva.authportal.repository.TeacherFeedbackRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -41,6 +48,7 @@ public class EvaluationService {
     private final ObjectMapper objectMapper;
     private final com.selva.authportal.repository.UserRepository userRepository;
     private final com.selva.authportal.repository.SubmissionRepository submissionRepository;
+    private final StorageService storageService;
 
     // Regex for parsing week identifier e.g. "week-01", "week-2", "Week 5", "week_10", "1"
     private static final Pattern WEEK_NUMBER_PATTERN = Pattern.compile("(?i)(?:week[_-]?0*(\\d+)|\\b(\\d+)\\b)");
@@ -387,7 +395,94 @@ public class EvaluationService {
     }
 
     /**
-     * Retrieves detailed evaluation report and teacher feedback for a single student and week.
+     * Extracts an integer section number from a raw section identifier (e.g. "SEC2" -> 2, "sec-03" -> 3, "1" -> 1).
+     */
+    public static Integer parseSectionNumber(String rawSection) {
+        if (rawSection == null || rawSection.trim().isEmpty()) {
+            return null;
+        }
+        Matcher matcher = Pattern.compile("(?i)(?:sec[_-]?0*|section[_-]?0*)?(\\d+)").matcher(rawSection.trim());
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException ignored) {}
+        }
+        return null;
+    }
+
+    /**
+     * Locates the exact matching Submission using the student's existing submission metadata:
+     * Student ID + Week Number + Section (+ Academic Year/Level if available).
+     * Resolves multiple versions by preferring the highest revision / most recently updated submission.
+     */
+    public Submission findMatchingSubmission(String studentId, Integer weekNumber, Integer sectionNumber, String yearStr) {
+        if (studentId == null || weekNumber == null) {
+            return null;
+        }
+
+        List<Submission> candidates;
+        if (sectionNumber != null) {
+            candidates = submissionRepository.findByStudentIdIgnoreCaseAndWeekAndSectionOrderByVersionDescUpdatedAtDesc(
+                    studentId, weekNumber, sectionNumber
+            );
+            if (candidates.isEmpty()) {
+                candidates = submissionRepository.findByStudentIdIgnoreCaseAndWeekOrderByVersionDescUpdatedAtDesc(
+                        studentId, weekNumber
+                );
+            }
+        } else {
+            candidates = submissionRepository.findByStudentIdIgnoreCaseAndWeekOrderByVersionDescUpdatedAtDesc(
+                    studentId, weekNumber
+            );
+        }
+
+        if (candidates.isEmpty()) {
+            return null;
+        }
+
+        // If academic year is available, filter by matching YearLevel
+        if (yearStr != null && !yearStr.trim().isEmpty()) {
+            try {
+                YearLevel targetYear = YearLevel.valueOf(yearStr.trim().toUpperCase());
+                for (Submission sub : candidates) {
+                    if (sub.getYear() == targetYear) {
+                        return sub;
+                    }
+                }
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        // Return the most authoritative candidate (highest version, most recent updatedAt)
+        return candidates.get(0);
+    }
+
+    /**
+     * Scans submission files for the PDF report file, strictly preferring FileType.PDF_REPORT.
+     */
+    public SubmissionFile findPdfFile(Submission submission) {
+        if (submission == null || submission.getFiles() == null || submission.getFiles().isEmpty()) {
+            return null;
+        }
+        // 1. Primary: Match FileType.PDF_REPORT
+        for (SubmissionFile file : submission.getFiles()) {
+            if (file.getFileType() == FileType.PDF_REPORT) {
+                return file;
+            }
+        }
+        // 2. Secondary fallback: file extension or original filename ending in .pdf
+        for (SubmissionFile file : submission.getFiles()) {
+            if (file.getFileExtension() != null && file.getFileExtension().equalsIgnoreCase(".pdf")) {
+                return file;
+            }
+            if (file.getOriginalFilename() != null && file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
+                return file;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Retrieves detailed evaluation report, OCR text, PDF mapping, and teacher feedback for a single student and week.
      */
     @Transactional(readOnly = true)
     public SingleStudentReportResponse getStudentReport(String studentId, String week) {
@@ -403,7 +498,10 @@ public class EvaluationService {
                 .orElse(null);
 
         Map<String, Object> extractionMap = null;
+        Map<String, Object> ocrMap = null;
+        Map<String, Object> sourceMap = null;
         String rawMarkdown = null;
+        String yearStr = null;
 
         if (eval.getRawJson() != null && !eval.getRawJson().isEmpty()) {
             try {
@@ -414,8 +512,43 @@ public class EvaluationService {
                 if (sNode.has("extraction")) {
                     extractionMap = objectMapper.convertValue(sNode.get("extraction"), new TypeReference<Map<String, Object>>() {});
                 }
+                if (sNode.has("ocr")) {
+                    ocrMap = objectMapper.convertValue(sNode.get("ocr"), new TypeReference<Map<String, Object>>() {});
+                }
+                if (sNode.has("source")) {
+                    sourceMap = objectMapper.convertValue(sNode.get("source"), new TypeReference<Map<String, Object>>() {});
+                }
+                if (sNode.hasNonNull("year")) {
+                    yearStr = sNode.get("year").asText();
+                } else if (sNode.hasNonNull("year_level")) {
+                    yearStr = sNode.get("year_level").asText();
+                }
             } catch (Exception e) {
                 log.warn("Failed to parse rawJson for student {} and week {}: {}", normalizedId, weekInfo.displayName(), e.getMessage());
+            }
+        }
+
+        // Authoritative mapping: Student + Week + Section -> Submission -> SubmissionFile(PDF_REPORT) -> Backblaze B2
+        Integer sectionNumber = parseSectionNumber(eval.getSectionId());
+        Submission matchingSubmission = findMatchingSubmission(eval.getStudentId(), eval.getWeekNumber(), sectionNumber, yearStr);
+        SubmissionFile pdfFile = findPdfFile(matchingSubmission);
+
+        boolean pdfAvailable = false;
+        String pdfFilename = null;
+        Long submissionId = null;
+        Long submissionFileId = null;
+
+        if (matchingSubmission != null && pdfFile != null) {
+            submissionId = matchingSubmission.getId();
+            submissionFileId = pdfFile.getId();
+            pdfFilename = pdfFile.getOriginalFilename();
+
+            String storageKey = pdfFile.getEffectiveStorageKey();
+            if (storageKey != null && storageService.fileExists(storageKey)) {
+                pdfAvailable = true;
+            } else {
+                log.warn("PDF file record exists in database (id={}) but physical file not found in storage with key: {}",
+                        pdfFile.getId(), storageKey);
             }
         }
 
@@ -433,9 +566,65 @@ public class EvaluationService {
                 .totalScore(eval.getTotalScore())
                 .rawEvaluationMarkdown(rawMarkdown)
                 .extraction(extractionMap)
+                .ocr(ocrMap)
+                .source(sourceMap)
+                .pdfAvailable(pdfAvailable)
+                .pdfFilename(pdfFilename)
+                .submissionId(submissionId)
+                .submissionFileId(submissionFileId)
                 .reviewed(fb != null && fb.isReviewed())
                 .feedbackText(fb != null ? fb.getFeedbackText() : "")
                 .build();
+    }
+
+    /**
+     * Streams the student's uploaded PDF report for inline browser viewing.
+     * Uses authoritative metadata mapping: Student + Week + Section -> Submission -> SubmissionFile(PDF_REPORT) -> StorageService (Backblaze B2).
+     */
+    @Transactional(readOnly = true)
+    public SubmissionService.DownloadableFile loadStudentPdf(String studentId, String week) {
+        String normalizedId = studentId.trim().toUpperCase();
+        WeekInfo weekInfo = normalizeWeek(week);
+
+        StudentEvaluation eval = evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName()
+                ));
+
+        Integer sectionNumber = parseSectionNumber(eval.getSectionId());
+        String yearStr = null;
+        if (eval.getRawJson() != null && !eval.getRawJson().isEmpty()) {
+            try {
+                JsonNode sNode = objectMapper.readTree(eval.getRawJson());
+                if (sNode.hasNonNull("year")) yearStr = sNode.get("year").asText();
+                else if (sNode.hasNonNull("year_level")) yearStr = sNode.get("year_level").asText();
+            } catch (Exception ignored) {}
+        }
+
+        Submission matchingSubmission = findMatchingSubmission(eval.getStudentId(), eval.getWeekNumber(), sectionNumber, yearStr);
+        if (matchingSubmission == null) {
+            throw new ResourceNotFoundException("No submission found for student " + normalizedId + " in " + weekInfo.displayName());
+        }
+
+        SubmissionFile pdfFile = findPdfFile(matchingSubmission);
+        if (pdfFile == null) {
+            throw new ResourceNotFoundException("No PDF report file found in submission for student " + normalizedId + " in " + weekInfo.displayName());
+        }
+
+        String storageKey = pdfFile.getEffectiveStorageKey();
+        if (!storageService.fileExists(storageKey)) {
+            throw new ResourceNotFoundException("PDF file not found in storage with key: " + storageKey);
+        }
+
+        InputStream inputStream;
+        try {
+            inputStream = storageService.openStream(storageKey);
+        } catch (IOException e) {
+            throw new IllegalStateException("Could not read PDF from storage: " + pdfFile.getOriginalFilename(), e);
+        }
+
+        Resource resource = new InputStreamResource(inputStream);
+        return new SubmissionService.DownloadableFile(resource, pdfFile.getOriginalFilename(), "application/pdf");
     }
 
     /**

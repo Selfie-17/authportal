@@ -137,4 +137,46 @@ export const evaluationService = {
     }
     return await response.json();
   },
+
+  /**
+   * Fetches the student's uploaded PDF report as a secure Blob URL for inline viewing.
+   */
+  async getStudentPdfBlobUrl(studentId, week) {
+    const url = API_ENDPOINTS.TEACHER_EVALUATIONS_PDF(studentId, week);
+    const headers = this.getHeaders();
+    headers['Accept'] = 'application/pdf, */*';
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+    });
+
+    if (!response.ok) {
+      let errorMsg = `PDF not found for student ${studentId} (${week}).`;
+      try {
+        const data = await response.json();
+        if (data && data.message) errorMsg = data.message;
+      } catch (_) {}
+      const error = new Error(errorMsg);
+      error.status = response.status;
+      throw error;
+    }
+
+    const blob = await response.blob();
+    return window.URL.createObjectURL(blob);
+  },
+
+  /**
+   * Downloads the student's uploaded PDF report.
+   */
+  async downloadStudentPdf(studentId, week, filename = 'observation_report.pdf') {
+    const blobUrl = await this.getStudentPdfBlobUrl(studentId, week);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+  },
 };

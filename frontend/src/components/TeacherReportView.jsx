@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { evaluationService } from '../services/evaluationService';
+import ExtractedTextViewer from './teacher/ExtractedTextViewer';
+import UploadedPdfViewer from './teacher/UploadedPdfViewer';
 
 /**
  * Single Student Teacher Report Component.
@@ -24,6 +26,9 @@ export default function TeacherReportView({
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Active view tab: 'evaluation' | 'ocr' | 'pdf'
+  const [activeTab, setActiveTab] = useState('evaluation');
 
   // Teacher feedback form state
   const [reviewed, setReviewed] = useState(false);
@@ -152,22 +157,106 @@ export default function TeacherReportView({
         </div>
       </div>
 
-      {/* Main Report Card */}
-      <div className="portal-card report-main-card">
-        {/* Score & Assessment Summary */}
-        <div className="report-summary-banner">
-          <div className="report-score-box">
-            <span className="score-label">Final Score</span>
-            <span className="score-value">{report.finalScore || 'N/A'}</span>
-            {report.totalScore && (
-              <span className="score-subtext">Total Raw: {report.totalScore}</span>
-            )}
+      {/* Four-Tab Report Navigation: Evaluation Report | Extracted Text | Uploaded PDF | Side-by-Side */}
+      <div className="report-nav-tabs" role="tablist">
+        <button
+          type="button"
+          className={`report-nav-tab ${activeTab === 'evaluation' ? 'active' : ''}`}
+          onClick={() => setActiveTab('evaluation')}
+        >
+          <span>📊 Evaluation Report</span>
+        </button>
+        <button
+          type="button"
+          className={`report-nav-tab ${activeTab === 'ocr' ? 'active' : ''}`}
+          onClick={() => setActiveTab('ocr')}
+        >
+          <span>📝 Extracted Text</span>
+          {report.ocr?.num_pages && (
+            <span className="report-tab-pill">{report.ocr.num_pages} pgs</span>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`report-nav-tab ${activeTab === 'pdf' ? 'active' : ''}`}
+          onClick={() => setActiveTab('pdf')}
+        >
+          <span>📄 Uploaded PDF</span>
+          <span className={`report-tab-pill ${report.pdfAvailable ? 'success' : 'muted'}`}>
+            {report.pdfAvailable ? 'Available' : 'No PDF'}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`report-nav-tab ${activeTab === 'side-by-side' ? 'active' : ''}`}
+          onClick={() => setActiveTab('side-by-side')}
+          title="Compare OCR extracted text and original PDF side by side"
+        >
+          <span>◫ Side-by-Side</span>
+        </button>
+      </div>
+
+      {/* TAB 2: OCR Extracted Text View */}
+      {activeTab === 'ocr' && (
+        <ExtractedTextViewer
+          studentId={report.studentId}
+          week={report.week}
+          report={report}
+        />
+      )}
+
+      {/* TAB 3: Uploaded Student PDF Stream View */}
+      {activeTab === 'pdf' && (
+        <UploadedPdfViewer
+          studentId={report.studentId}
+          week={report.week}
+          report={report}
+        />
+      )}
+
+      {/* TAB 4: Side-by-Side View (Both Pure Light Theme) */}
+      {activeTab === 'side-by-side' && (
+        <div className="report-side-by-side-layout">
+          <div className="side-by-side-column ocr-column">
+            <div className="side-by-side-col-header">
+              <span className="side-col-title">📝 Extracted OCR Text</span>
+            </div>
+            <ExtractedTextViewer
+              studentId={report.studentId}
+              week={report.week}
+              report={report}
+            />
           </div>
-          <div className="report-assessment-box">
-            <h4>Overall Assessment</h4>
-            <p>{report.assessment || 'No assessment provided.'}</p>
+          <div className="side-by-side-column pdf-column">
+            <div className="side-by-side-col-header">
+              <span className="side-col-title">📄 Student Uploaded PDF</span>
+            </div>
+            <UploadedPdfViewer
+              studentId={report.studentId}
+              week={report.week}
+              report={report}
+            />
           </div>
         </div>
+      )}
+
+      {/* TAB 1: Evaluation Report Card */}
+      {activeTab === 'evaluation' && (
+        <div className="portal-card report-main-card">
+          {/* Score & Assessment Banner */}
+          <div className="report-summary-banner">
+            <div className="report-score-box">
+              <span className="score-label">Final Score</span>
+              <span className="score-value">{report.finalScore || 'N/A'}</span>
+              {report.totalScore && (
+                <span className="score-subtext">Total Raw: {report.totalScore}</span>
+              )}
+            </div>
+            <div className="report-assessment-box">
+              <h4>Overall Assessment</h4>
+              <p>{report.assessment || 'No assessment provided.'}</p>
+            </div>
+          </div>
 
         {/* Section-by-Section Score Breakdown */}
         <div className="report-section-block">
@@ -387,6 +476,7 @@ export default function TeacherReportView({
           </form>
         </div>
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 }
