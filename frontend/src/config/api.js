@@ -34,6 +34,7 @@ export const API_ENDPOINTS = {
   TEACHER_EVALUATIONS_GRID: `${API_BASE_URL}/api/teacher/evaluations/grid`,
   TEACHER_EVALUATIONS_REPORT: `${API_BASE_URL}/api/teacher/evaluations/report`,
   TEACHER_EVALUATIONS_FEEDBACK: `${API_BASE_URL}/api/teacher/evaluations/feedback`,
+  TEACHER_EVALUATIONS_SCORE: `${API_BASE_URL}/api/teacher/evaluations/score`,
   TEACHER_EVALUATIONS_PDF: (studentId, week) =>
     `${API_BASE_URL}/api/teacher/evaluations/pdf?studentId=${encodeURIComponent(studentId)}&week=${encodeURIComponent(week)}`,
 };

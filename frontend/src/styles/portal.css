@@ -1172,7 +1172,7 @@
 
 .report-summary-banner {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 240px 1fr;
   gap: 1.5rem;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -1195,7 +1195,7 @@
   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
   border: 1px solid #bfdbfe;
   border-radius: 10px;
-  padding: 1.25rem;
+  padding: 1.25rem 1rem;
   text-align: center;
 }
 
@@ -1205,7 +1205,147 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #1e40af;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.35rem;
+}
+
+/* ==============================================================================
+ * Marks Stepper Widget (- marks +)
+ * ============================================================================== */
+.marks-stepper-widget {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0;
+}
+
+.marks-stepper-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid #93c5fd;
+  background: #ffffff;
+  color: #1d4ed8;
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(30, 64, 175, 0.08);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  padding: 0;
+}
+
+.marks-stepper-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #1e40af;
+  transform: scale(1.08);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.18);
+}
+
+.marks-stepper-btn:active:not(:disabled) {
+  transform: scale(0.94);
+  background: #dbeafe;
+}
+
+.marks-stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+  color: #94a3b8;
+  box-shadow: none;
+  transform: none;
+}
+
+.marks-input-wrapper {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  background: #ffffff;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 0.15rem 0.5rem;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap !important;
+}
+
+.marks-input-wrapper:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.marks-stepper-input {
+  width: 4.25rem;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #1d4ed8;
+  text-align: center;
+  padding: 0;
+  margin: 0;
+  -moz-appearance: textfield;
+}
+
+.marks-stepper-input::-webkit-outer-spin-button,
+.marks-stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.marks-stepper-scale {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-left: 0.25rem;
+  user-select: none;
+  white-space: nowrap !important;
+}
+
+.marks-status-area {
+  min-height: 1.25rem;
+  margin-top: 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.marks-status-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  animation: fadeIn 0.15s ease-in;
+}
+
+.marks-status-pill.saving {
+  color: #0369a1;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+}
+
+.marks-status-pill.saved {
+  color: #15803d;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+}
+
+.marks-status-pill.error {
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .score-value {
@@ -1255,38 +1395,55 @@
 
 .score-card {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.85rem;
+  justify-content: space-between;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 0.85rem 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  border-radius: 12px;
+  padding: 0.85rem 0.65rem 0.75rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.15s ease;
+  min-height: 105px;
+}
+
+.score-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.07);
+}
+
+.score-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  margin-bottom: 0.5rem;
+  text-align: center;
 }
 
 .score-card-number {
-  width: 28px;
-  height: 28px;
-  background: #f1f5f9;
-  color: #475569;
+  width: 22px;
+  height: 22px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
   font-weight: 800;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   border-radius: 50%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.score-card-content {
-  display: flex;
-  flex-direction: column;
-}
-
 .score-card-label {
-  font-size: 0.75rem;
-  color: #64748b;
-  font-weight: 500;
+  font-size: 0.8rem;
+  color: #334155;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
 }
 
 .score-card-val {
@@ -1294,6 +1451,107 @@
   font-weight: 700;
   color: #0f172a;
   font-family: monospace;
+}
+
+/* Section-by-Section Stepper Widget */
+.section-stepper-widget {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.sec-step-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid #bfdbfe;
+  background: #ffffff;
+  color: #1d4ed8;
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(30, 64, 175, 0.06);
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.sec-step-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #1e40af;
+  transform: scale(1.08);
+}
+
+.sec-step-btn:active:not(:disabled) {
+  background: #dbeafe;
+  transform: scale(0.94);
+}
+
+.sec-step-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: #cbd5e1;
+  color: #94a3b8;
+  box-shadow: none;
+  transform: none;
+}
+
+.sec-step-pill {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  background: #ffffff;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 0.15rem 0.45rem;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap !important;
+  flex-shrink: 0;
+}
+
+.sec-step-pill:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2.5px rgba(37, 99, 235, 0.15);
+}
+
+.sec-step-input {
+  width: 2rem;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1d4ed8;
+  text-align: right;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  -moz-appearance: textfield;
+}
+
+.sec-step-input::-webkit-outer-spin-button,
+.sec-step-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.sec-step-denom {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-left: 0.2rem;
+  user-select: none;
+  white-space: nowrap !important;
+  letter-spacing: 0.02em;
 }
 
 /* Program Item Cards */

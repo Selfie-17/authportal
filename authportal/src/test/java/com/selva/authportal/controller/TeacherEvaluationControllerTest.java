@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -179,6 +180,33 @@ class TeacherEvaluationControllerTest {
                 .andExpect(jsonPath("$.week").value("Week 1"))
                 .andExpect(jsonPath("$.reviewed").value(true))
                 .andExpect(jsonPath("$.feedbackText").value("Excellent clarity."));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/teacher/evaluations/score updates awarded marks")
+    void testUpdateScore() throws Exception {
+        ScoreUpdateRequest request = ScoreUpdateRequest.builder()
+                .studentId("N210921")
+                .week("Week 1")
+                .finalScore("8.5 / 10")
+                .numericScore(8.5)
+                .build();
+
+        when(evaluationService.updateScore(any(ScoreUpdateRequest.class), eq("teacher@rguktn.ac.in")))
+                .thenReturn(SingleStudentReportResponse.builder()
+                        .studentId("N210921")
+                        .week("Week 1")
+                        .finalScore("8.5 / 10")
+                        .build()
+                );
+
+        mockMvc.perform(patch("/api/teacher/evaluations/score")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.studentId").value("N210921"))
+                .andExpect(jsonPath("$.week").value("Week 1"))
+                .andExpect(jsonPath("$.finalScore").value("8.5 / 10"));
     }
 
     @Test

@@ -102,18 +102,35 @@ export const evaluationService = {
   },
 
   /**
-   * Saves or updates teacher feedback (reviewed Yes/No, feedback text) for Student ID + Week.
+   * Saves or updates teacher feedback (reviewed Yes/No, feedback text, optional score & sections) for Student ID + Week.
    */
-  async saveFeedback({ studentId, week, reviewed, feedbackText }) {
+  async saveFeedback(payload) {
     const response = await fetch(API_ENDPOINTS.TEACHER_EVALUATIONS_FEEDBACK, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ studentId, week, reviewed, feedbackText }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(data.message || 'Failed to save teacher feedback.');
+    }
+    return data;
+  },
+
+  /**
+   * Updates the final awarded score and section-by-section breakdown for a student's evaluation report.
+   */
+  async updateScore(payload) {
+    const response = await fetch(API_ENDPOINTS.TEACHER_EVALUATIONS_SCORE, {
+      method: 'PATCH',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to update marks.');
     }
     return data;
   },

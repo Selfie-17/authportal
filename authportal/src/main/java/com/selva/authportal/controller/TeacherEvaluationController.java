@@ -102,6 +102,20 @@ public class TeacherEvaluationController {
     }
 
     /**
+     * Updates the awarded marks/score for a student evaluation report.
+     * Accessible by TEACHER and ADMIN roles.
+     */
+    @PatchMapping("/score")
+    public ResponseEntity<SingleStudentReportResponse> updateScore(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody ScoreUpdateRequest request
+    ) {
+        String teacherEmail = (userDetails != null) ? userDetails.getUsername() : "teacher@rguktn.ac.in";
+        SingleStudentReportResponse response = evaluationService.updateScore(request, teacherEmail);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Deletes a student's evaluation report for a specific week, or all reports if week is not specified.
      */
     @DeleteMapping("/report")

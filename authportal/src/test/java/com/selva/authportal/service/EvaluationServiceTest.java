@@ -597,4 +597,66 @@ class EvaluationServiceTest {
                 () -> evaluationService.loadStudentPdf("N241003", "Week 4")
         );
     }
+
+    @Test
+    @DisplayName("Teacher updateScore persists validated marks and rejects out-of-range values")
+    void testUpdateScoreAndValidation() throws IOException {
+        evaluationService.processJsonString(SAMPLE_WEEK_1_JSON);
+
+        // 1. Initial score for N210921 is "0.00 / 10"
+        SingleStudentReportResponse initialReport = evaluationService.getStudentReport("N210921", "Week 1");
+        assertThat(initialReport.getFinalScore()).isEqualTo("0.00 / 10");
+
+        // 2. Update to 8.5 / 10
+        ScoreUpdateRequest updateReq = ScoreUpdateRequest.builder()
+                .studentId("N210921")
+                .week("Week 1")
+                .finalScore("8.5 / 10")
+                .numericScore(8.5)
+                .build();
+
+        SingleStudentReportResponse updatedReport = evaluationService.updateScore(updateReq, "teacher@rguktn.ac.in");
+        assertThat(updatedReport.getFinalScore()).isEqualTo("8.5 / 10");
+
+        // Verify in Grid
+        TeacherEvaluationGridResponse grid = evaluationService.getEvaluationGrid();
+        TeacherEvaluationRowDTO row = grid.getRows().stream()
+                .filter(r -> r.getStudentId().equals("N210921"))
+                .findFirst().orElseThrow();
+        assertThat(row.getEvaluations().get("Week 1").getFinalScore()).isEqualTo("8.5 / 10");
+
+        // 3. Update preserving precise decimal e.g. 7.94
+        ScoreUpdateRequest preciseReq = ScoreUpdateRequest.builder()
+                .studentId("N210921")
+                .week("Week 1")
+                .finalScore("7.94 / 10")
+                .numericScore(7.94)
+                .build();
+        SingleStudentReportResponse preciseReport = evaluationService.updateScore(preciseReq, "teacher@rguktn.ac.in");
+        assertThat(preciseReport.getFinalScore()).isEqualTo("7.94 / 10");
+
+        // 4. Validate rejection for < 0
+        ScoreUpdateRequest negativeReq = ScoreUpdateRequest.builder()
+                .studentId("N210921")
+                .week("Week 1")
+                .finalScore("-1 / 10")
+                .numericScore(-1.0)
+                .build();
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> evaluationService.updateScore(negativeReq, "teacher@rguktn.ac.in")
+        );
+
+        // 5. Validate rejection for > 10
+        ScoreUpdateRequest tooHighReq = ScoreUpdateRequest.builder()
+                .studentId("N210921")
+                .week("Week 1")
+                .finalScore("11 / 10")
+                .numericScore(11.0)
+                .build();
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> evaluationService.updateScore(tooHighReq, "teacher@rguktn.ac.in")
+        );
+    }
 }

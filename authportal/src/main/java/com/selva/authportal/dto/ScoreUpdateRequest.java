@@ -6,11 +6,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Request payload for updating the final awarded score/marks of a student evaluation.
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TeacherFeedbackRequest {
+public class ScoreUpdateRequest {
 
     @NotBlank(message = "Student ID is required")
     private String studentId;
@@ -18,10 +21,7 @@ public class TeacherFeedbackRequest {
     @NotBlank(message = "Week is required")
     private String week;
 
-    private Boolean reviewed;
-
-    private String feedbackText;
-
+    @NotBlank(message = "Final score is required")
     private String finalScore;
 
     private Double numericScore;

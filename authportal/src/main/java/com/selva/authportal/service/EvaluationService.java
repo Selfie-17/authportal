@@ -650,6 +650,24 @@ public class EvaluationService {
         TeacherFeedback saved = feedbackRepository.save(feedback);
         log.info("Saved teacher feedback for {} and {}: reviewed={}", normalizedId, weekInfo.displayName(), saved.isReviewed());
 
+        // If score update is included with feedback submission, persist it as well
+        if (request.getFinalScore() != null && !request.getFinalScore().trim().isEmpty()) {
+            double numScore = validateAndExtractNumericScore(request.getFinalScore(), request.getNumericScore());
+            String formattedScore = formatFinalScoreString(request.getFinalScore(), numScore);
+            evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
+                    .ifPresent(eval -> {
+                        eval.setFinalScore(formattedScore);
+                        if (request.getObjectiveScore() != null) eval.setObjectiveScore(request.getObjectiveScore().trim());
+                        if (request.getProblemUnderstandingScore() != null) eval.setProblemUnderstandingScore(request.getProblemUnderstandingScore().trim());
+                        if (request.getLogicScore() != null) eval.setLogicScore(request.getLogicScore().trim());
+                        if (request.getVariablesScore() != null) eval.setVariablesScore(request.getVariablesScore().trim());
+                        if (request.getObservationScore() != null) eval.setObservationScore(request.getObservationScore().trim());
+                        if (request.getTotalScore() != null) eval.setTotalScore(request.getTotalScore().trim());
+                        evaluationRepository.save(eval);
+                        log.info("Updated final score & sections via feedback save for {} and {}: {}", normalizedId, weekInfo.displayName(), formattedScore);
+                    });
+        }
+
         return TeacherFeedbackResponse.builder()
                 .studentId(saved.getStudentId())
                 .week(saved.getWeek())
@@ -658,6 +676,81 @@ public class EvaluationService {
                 .teacherEmail(saved.getTeacherEmail())
                 .updatedAt(saved.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * Updates the final awarded score and section-by-section breakdown for a student evaluation report.
+     * Strictly validates that the numeric score falls within 0.0 and 10.0 inclusive.
+     */
+    @Transactional
+    public SingleStudentReportResponse updateScore(ScoreUpdateRequest request, String teacherEmail) {
+        String normalizedId = request.getStudentId().trim().toUpperCase();
+        WeekInfo weekInfo = normalizeWeek(request.getWeek());
+
+        double numericScore = validateAndExtractNumericScore(request.getFinalScore(), request.getNumericScore());
+        String formattedFinalScore = formatFinalScoreString(request.getFinalScore(), numericScore);
+
+        StudentEvaluation eval = evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName()
+                ));
+
+        eval.setFinalScore(formattedFinalScore);
+        if (request.getObjectiveScore() != null) eval.setObjectiveScore(request.getObjectiveScore().trim());
+        if (request.getProblemUnderstandingScore() != null) eval.setProblemUnderstandingScore(request.getProblemUnderstandingScore().trim());
+        if (request.getLogicScore() != null) eval.setLogicScore(request.getLogicScore().trim());
+        if (request.getVariablesScore() != null) eval.setVariablesScore(request.getVariablesScore().trim());
+        if (request.getObservationScore() != null) eval.setObservationScore(request.getObservationScore().trim());
+        if (request.getTotalScore() != null) eval.setTotalScore(request.getTotalScore().trim());
+
+        StudentEvaluation saved = evaluationRepository.save(eval);
+        log.info("Teacher {} updated scores for {} and {} to {} (raw total: {})",
+                teacherEmail, normalizedId, weekInfo.displayName(), formattedFinalScore, saved.getTotalScore());
+
+        return getStudentReport(saved.getStudentId(), saved.getWeek());
+    }
+
+    /**
+     * Extracts and validates numeric score from finalScore string or direct Double.
+     * Strictly ensures score is between 0.0 and 10.0 inclusive.
+     */
+    public static double validateAndExtractNumericScore(String finalScore, Double directNumeric) {
+        Double scoreVal = directNumeric;
+        if (scoreVal == null && finalScore != null && !finalScore.trim().isEmpty()) {
+            Matcher m = Pattern.compile("(?i)^\\s*([0-9]+(?:\\.[0-9]+)?)").matcher(finalScore.trim());
+            if (m.find()) {
+                try {
+                    scoreVal = Double.parseDouble(m.group(1));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid numeric score format: " + finalScore);
+                }
+            }
+        }
+
+        if (scoreVal == null) {
+            throw new IllegalArgumentException("A valid numeric score is required.");
+        }
+
+        if (scoreVal < 0.0 || scoreVal > 10.0) {
+            throw new IllegalArgumentException("Score must be between 0 and 10 (received: " + scoreVal + ").");
+        }
+
+        return scoreVal;
+    }
+
+    /**
+     * Formats the final score string consistently.
+     * Preserves existing fractional precision (e.g. 7.94, 8.5) and retains or attaches " / 10".
+     */
+    public static String formatFinalScoreString(String finalScore, double validatedNumeric) {
+        String trimmed = (finalScore != null) ? finalScore.trim() : "";
+        if (trimmed.contains("/")) {
+            return trimmed;
+        }
+        if (validatedNumeric == Math.floor(validatedNumeric) && !Double.isInfinite(validatedNumeric)) {
+            return String.format("%.0f / 10", validatedNumeric);
+        }
+        return validatedNumeric + " / 10";
     }
 
     /**

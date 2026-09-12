@@ -165,19 +165,43 @@ export default function TeacherSubmissionsPage() {
     }
   };
 
-  const handleFeedbackUpdated = (sId, w, reviewed, text) => {
-    // In-place update in gridData to reflect immediate review status change without full refetch
+  const handleFeedbackUpdated = (sId, w, reviewed, text, scoreInfo) => {
+    // Extract formatted and numeric score safely
+    let formattedScore;
+    let numericScore;
+
+    if (scoreInfo && typeof scoreInfo === 'object') {
+      formattedScore = scoreInfo.formattedScore;
+      numericScore = scoreInfo.numericScore;
+    } else if (typeof scoreInfo === 'string') {
+      formattedScore = scoreInfo;
+      numericScore = parseFloat(scoreInfo);
+    } else if (typeof scoreInfo === 'number') {
+      numericScore = scoreInfo;
+      formattedScore = `${scoreInfo} / 10`;
+    }
+
+    // In-place update in gridData to reflect immediate review status and marks change without full refetch
     setGridData((prev) => {
-      const updatedRows = prev.rows.map((row) => {
+      const updatedRows = (prev.rows || []).map((row) => {
         if (row.studentId === sId && row.evaluations && row.evaluations[w]) {
+          const currentEval = row.evaluations[w];
           return {
             ...row,
             evaluations: {
               ...row.evaluations,
               [w]: {
-                ...row.evaluations[w],
-                reviewed,
-                feedbackText: text,
+                ...currentEval,
+                reviewed: reviewed !== undefined ? reviewed : currentEval.reviewed,
+                feedbackText: text !== undefined ? text : currentEval.feedbackText,
+                finalScore: formattedScore || currentEval.finalScore,
+                numericScore: numericScore !== undefined && !isNaN(numericScore) ? numericScore : currentEval.numericScore,
+                totalScore: (scoreInfo && scoreInfo.totalScore) || currentEval.totalScore,
+                objectiveScore: (scoreInfo && scoreInfo.objectiveScore) || currentEval.objectiveScore,
+                problemUnderstandingScore: (scoreInfo && scoreInfo.problemUnderstandingScore) || currentEval.problemUnderstandingScore,
+                logicScore: (scoreInfo && scoreInfo.logicScore) || currentEval.logicScore,
+                variablesScore: (scoreInfo && scoreInfo.variablesScore) || currentEval.variablesScore,
+                observationScore: (scoreInfo && scoreInfo.observationScore) || currentEval.observationScore,
               },
             },
           };
