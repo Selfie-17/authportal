@@ -3,17 +3,18 @@ package com.selva.authportal.controller;
 import com.selva.authportal.dto.ApiResponse;
 import com.selva.authportal.dto.SubmissionRequest;
 import com.selva.authportal.dto.SubmissionResponse;
+import com.selva.authportal.exception.ClientDisconnectDetector;
 import com.selva.authportal.exception.ResourceNotFoundException;
+import com.selva.authportal.model.Submission;
 import com.selva.authportal.model.User;
 import com.selva.authportal.repository.UserRepository;
 import com.selva.authportal.security.CustomUserDetails;
 import com.selva.authportal.service.SubmissionService;
 import com.selva.authportal.service.ZipArchiveService;
+import com.selva.authportal.web.StreamingFileResponses;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -23,10 +24,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.util.List;
 import java.util.Map;
 
@@ -119,23 +119,22 @@ public class SubmissionController {
     /**
      * Downloads an individual file from a submission.
      * Access is restricted to the owning student, or any authorized teacher / admin.
+     * Storage keys are taken from the database after authorization; the client cannot supply a B2 key.
      */
     @GetMapping("/{submissionId}/files/{fileId}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Resource> downloadFile(
+    public ResponseEntity<StreamingResponseBody> downloadFile(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable("submissionId") Long submissionId,
             @PathVariable("fileId") Long fileId
-    ) throws MalformedURLException {
+    ) {
         User currentUser = resolveCurrentUser(userDetails);
         SubmissionService.DownloadableFile downloadable = submissionService.loadFileForDownload(
                 currentUser, submissionId, fileId
         );
-
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(downloadable.contentType()))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + downloadable.filename() + "\"")
-                .body(downloadable.resource());
+        log.info("Single-file download type=file submissionId={} fileId={} requester={} filename={}",
+                submissionId, fileId, currentUser.getEmail(), downloadable.filename());
+        return StreamingFileResponses.from(downloadable, true);
     }
 
     /**
@@ -154,28 +153,43 @@ public class SubmissionController {
     }
 
     /**
-     * Teacher endpoint: Batch downloads submissions for a Week/Section as a structured ZIP archive.
-     * Preserves directory hierarchy: week-{w}-sec-{s}/{studentId}/[files]
+     * Teacher endpoint: streams submissions for a Week/Section as a ZIP.
+     * File selection uses exact Aiven storage_key values, not a broad B2 prefix listing.
+     * Hierarchy: week-{w}-sec-{s}/{studentId}/[files]
      */
     @GetMapping("/teacher/download-zip")
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
-    public ResponseEntity<Resource> downloadSubmissionsZip(
+    public ResponseEntity<StreamingResponseBody> downloadSubmissionsZip(
             @RequestParam("week") Integer week,
             @RequestParam(value = "year", required = false) com.selva.authportal.model.YearLevel year,
             @RequestParam(value = "section", required = false) Integer section
-    ) throws IOException {
-        List<com.selva.authportal.model.Submission> submissions = submissionService.getSubmissionsForZip(week, year, section);
+    ) {
+        List<Submission> submissions = submissionService.getSubmissionsForZip(week, year, section);
+        List<ZipArchiveService.ZipSourceFile> sources = zipArchiveService.snapshotSourceFiles(submissions);
         String zipFilename = zipArchiveService.getArchiveFilename(week, section);
+        int submissionCount = submissions.size();
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        zipArchiveService.generateSubmissionsZip(submissions, week, section, baos);
-        byte[] zipBytes = baos.toByteArray();
+        log.info("ZIP download requested type=zip week={} year={} section={} submissions={} files={} filename={}",
+                week, year, section, submissionCount, sources.size(), zipFilename);
+
+        StreamingResponseBody body = outputStream -> {
+            try {
+                zipArchiveService.writeZip(sources, submissionCount, week, section, outputStream);
+            } catch (IOException ex) {
+                if (ClientDisconnectDetector.isClientAbort(ex)) {
+                    log.info("Client aborted ZIP download week={} section={}", week, section);
+                    return;
+                }
+                throw ex;
+            }
+        };
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + zipFilename + "\"")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("X-Accel-Buffering", "no")
                 .contentType(MediaType.parseMediaType("application/zip"))
-                .contentLength(zipBytes.length)
-                .body(new ByteArrayResource(zipBytes));
+                .body(body);
     }
 
 

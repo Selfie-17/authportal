@@ -612,16 +612,18 @@ public class EvaluationService {
         }
 
         String storageKey = pdfFile.getEffectiveStorageKey();
-        if (!storageService.fileExists(storageKey)) {
-            throw new ResourceNotFoundException("PDF file not found in storage with key: " + storageKey);
-        }
 
         InputStream inputStream;
         try {
             inputStream = storageService.openStream(storageKey);
+        } catch (java.io.FileNotFoundException e) {
+            throw new ResourceNotFoundException("PDF file not found in storage with key: " + storageKey);
         } catch (IOException e) {
             throw new IllegalStateException("Could not read PDF from storage: " + pdfFile.getOriginalFilename(), e);
         }
+
+        log.info("Authorized PDF download studentId={} week={} submissionId={} storageKey={} type=pdf",
+                normalizedId, weekInfo.displayName(), matchingSubmission.getId(), storageKey);
 
         Resource resource = new InputStreamResource(inputStream);
         return new SubmissionService.DownloadableFile(resource, pdfFile.getOriginalFilename(), "application/pdf");

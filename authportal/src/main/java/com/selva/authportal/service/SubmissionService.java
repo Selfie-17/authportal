@@ -299,16 +299,17 @@ public class SubmissionService {
                 ? submissionFile.getStorageKey()
                 : SubmissionPathUtils.buildStorageKey(submission.getStoragePath(), submissionFile.getStoredFilename());
 
-        if (!storageService.fileExists(storageKey)) {
-            throw new ResourceNotFoundException("File not found in storage: " + submissionFile.getOriginalFilename());
-        }
-
         InputStream inputStream;
         try {
             inputStream = storageService.openStream(storageKey);
+        } catch (java.io.FileNotFoundException e) {
+            throw new ResourceNotFoundException("File not found in storage: " + submissionFile.getOriginalFilename());
         } catch (IOException e) {
             throw new IllegalStateException("Could not read file from storage: " + submissionFile.getOriginalFilename(), e);
         }
+
+        log.info("Authorized file download submissionId={} fileId={} studentId={} storageKey={} sizeBytes={} type=file",
+                submissionId, fileId, submission.getStudentId(), storageKey, submissionFile.getFileSizeBytes());
 
         Resource resource = new InputStreamResource(inputStream);
         String contentType = submissionFile.getFileExtension().equalsIgnoreCase(".pdf")

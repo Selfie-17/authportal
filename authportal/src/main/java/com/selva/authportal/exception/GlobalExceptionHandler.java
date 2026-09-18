@@ -9,9 +9,13 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -163,7 +167,14 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex) {
+    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+            IllegalArgumentException ex,
+            HttpServletResponse servletResponse
+    ) {
+        if (ClientDisconnectDetector.isClientAbort(ex) || isCommitted(servletResponse)) {
+            log.info("Client disconnected while writing response; skipping JSON error body ({})", ex.getMessage());
+            return null;
+        }
         log.warn("Invalid argument: {}", ex.getMessage());
         ErrorResponse response = ErrorResponse.builder()
                 .timestamp(Instant.now())
@@ -174,8 +185,39 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    /**
+     * Client/proxy aborted the connection (timeout, navigation, or closed socket).
+     * Do not attempt a JSON error body — Jackson would write to a dead stream and
+     * can raise "Self-suppression not permitted" when the same failure is added as suppressed.
+     */
+    @ExceptionHandler({
+            AsyncRequestNotUsableException.class,
+            HttpMessageNotWritableException.class
+    })
+    public void handleUnusableResponse(Exception ex) {
+        if (ClientDisconnectDetector.isClientAbort(ex)) {
+            log.info("Client disconnected during response write: {}", rootMessage(ex));
+            return;
+        }
+        log.warn("Response could not be written: {}", rootMessage(ex));
+    }
+
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<ErrorResponse> handleIoException(IOException ex, HttpServletResponse servletResponse) {
+        if (ClientDisconnectDetector.isClientAbort(ex) || isCommitted(servletResponse)) {
+            log.info("Client aborted connection: {}", rootMessage(ex));
+            return null;
+        }
+        return handleGeneralException(ex, servletResponse);
+    }
+
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneralException(Exception ex) {
+    public ResponseEntity<ErrorResponse> handleGeneralException(Exception ex, HttpServletResponse servletResponse) {
+        if (ClientDisconnectDetector.isClientAbort(ex) || isCommitted(servletResponse)) {
+            log.info("Skipping JSON error response after client disconnect or committed output: {}",
+                    ex.getClass().getSimpleName());
+            return null;
+        }
         log.error("Unhandled exception caught: ", ex);
         ErrorResponse response = ErrorResponse.builder()
                 .timestamp(Instant.now())
@@ -184,5 +226,17 @@ public class GlobalExceptionHandler {
                 .message("An unexpected error occurred. Please try again later.")
                 .build();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+    }
+
+    private static boolean isCommitted(HttpServletResponse servletResponse) {
+        return servletResponse != null && servletResponse.isCommitted();
+    }
+
+    private static String rootMessage(Throwable ex) {
+        Throwable current = ex;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current.getMessage() != null ? current.getMessage() : ex.getClass().getSimpleName();
     }
 }

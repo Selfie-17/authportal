@@ -77,9 +77,12 @@ export const submissionService = {
    */
   async downloadFile(submissionId, fileId, originalFilename) {
     const url = `${API_ENDPOINTS.SUBMISSIONS}/${submissionId}/files/${fileId}`;
+    const headers = this.getHeaders();
+    headers['Accept'] = 'application/octet-stream, application/pdf, text/plain, */*';
+
     const response = await fetch(url, {
       method: 'GET',
-      headers: this.getHeaders(),
+      headers,
     });
 
     if (!response.ok) {
@@ -99,7 +102,7 @@ export const submissionService = {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    window.URL.revokeObjectURL(blobUrl);
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
   },
 
   /**
@@ -190,6 +193,6 @@ export const submissionService = {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    window.URL.revokeObjectURL(blobUrl);
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
   },
 };

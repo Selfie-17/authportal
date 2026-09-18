@@ -5,9 +5,11 @@ import com.selva.authportal.service.EvaluationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.selva.authportal.web.StreamingFileResponses;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -77,15 +79,12 @@ public class TeacherEvaluationController {
      * Uses the authoritative mapping: Student + Week + Section -> Submission -> SubmissionFile(PDF_REPORT) -> Backblaze B2.
      */
     @GetMapping("/pdf")
-    public ResponseEntity<org.springframework.core.io.Resource> getStudentPdf(
+    public ResponseEntity<StreamingResponseBody> getStudentPdf(
             @RequestParam("studentId") String studentId,
             @RequestParam("week") String week
     ) {
         com.selva.authportal.service.SubmissionService.DownloadableFile downloadable = evaluationService.loadStudentPdf(studentId, week);
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(downloadable.contentType()))
-                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + downloadable.filename() + "\"")
-                .body(downloadable.resource());
+        return StreamingFileResponses.from(downloadable, false);
     }
 
     /**

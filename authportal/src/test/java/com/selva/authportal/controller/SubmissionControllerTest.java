@@ -226,7 +226,32 @@ class SubmissionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Disposition", "attachment; filename=\"week-1-sec-2.zip\""))
                 .andExpect(header().string("Content-Type", "application/zip"))
-                .andExpect(header().exists("Content-Length"));
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("X-Accel-Buffering", "no"));
+    }
+
+    @Test
+    @DisplayName("Should return 404 when download file is not found")
+    void shouldReturn404WhenDownloadFileNotFound() throws Exception {
+        when(submissionService.loadFileForDownload(any(), eq(10L), eq(999L)))
+                .thenThrow(new com.selva.authportal.exception.ResourceNotFoundException("File not found in storage: missing.c"));
+
+        mockMvc.perform(get("/api/submissions/10/files/999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("File not found in storage: missing.c"));
+    }
+
+    @Test
+    @DisplayName("Should return 403 when student attempts unauthorized download")
+    void shouldReturn403WhenUnauthorizedDownload() throws Exception {
+        when(submissionService.loadFileForDownload(any(), eq(10L), eq(101L)))
+                .thenThrow(new org.springframework.security.access.AccessDeniedException("You do not have permission to access files from this submission."));
+
+        mockMvc.perform(get("/api/submissions/10/files/101"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
+                .andExpect(jsonPath("$.message").value("You do not have permission to access this resource."));
     }
 
     @Test
