@@ -33,9 +33,10 @@ import java.util.stream.Collectors;
  * Service managing Teacher Evaluations and Human Teacher Feedback.
  *
  * Key guarantees:
+ * - Multi-provider support: Gemini and Ollama evaluations coexist for each student and week.
  * - Dynamic student rows: exactly one row per Student ID.
  * - Dynamic week columns: dynamically generated from uploaded data and sorted naturally.
- * - Replacement rule: (student_id + week) uniquely identifies an evaluation; re-upload replaces AI evaluation.
+ * - High performance: lightweight projections avoid loading multi-megabyte raw JSON across DB connections.
  * - Independence rule: Teacher feedback belongs to (student_id + week) and never alters AI evaluation data.
  */
 @Slf4j
@@ -53,7 +54,7 @@ public class EvaluationService {
     // Regex for parsing week identifier e.g. "week-01", "week-2", "Week 5", "week_10", "1"
     private static final Pattern WEEK_NUMBER_PATTERN = Pattern.compile("(?i)(?:week[_-]?0*(\\d+)|\\b(\\d+)\\b)");
 
-    // Markdown score extraction patterns
+    // Markdown score extraction patterns (legacy schema fallback)
     private static final Pattern OBJECTIVE_PATTERN = Pattern.compile("(?i)\\|\\s*Objective of the Lab\\s*\\|\\s*([^|\\r\\n]+?)\\s*\\|");
     private static final Pattern PROBLEM_PATTERN = Pattern.compile("(?i)\\|\\s*Problem Understanding\\s*\\|\\s*([^|\\r\\n]+?)\\s*\\|");
     private static final Pattern LOGIC_PATTERN = Pattern.compile("(?i)\\|\\s*Logic\\s*/?\\s*Approach Used\\s*\\|\\s*([^|\\r\\n]+?)\\s*\\|");
@@ -84,7 +85,6 @@ public class EvaluationService {
                 return new WeekInfo("Week " + num, num);
             } catch (NumberFormatException ignored) {}
         }
-        // If no number could be parsed, return capitalized string
         return new WeekInfo(trimmed, 999);
     }
 
@@ -93,11 +93,19 @@ public class EvaluationService {
      */
     @Transactional
     public EvaluationUploadResponse processJsonUpload(MultipartFile file) throws IOException {
+        return processJsonUpload(file, null);
+    }
+
+    /**
+     * Uploads and parses evaluation JSON from a MultipartFile with optional forced provider.
+     */
+    @Transactional
+    public EvaluationUploadResponse processJsonUpload(MultipartFile file, String forcedProvider) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Uploaded JSON file is empty.");
         }
         String jsonContent = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return processJsonString(jsonContent);
+        return processJsonString(jsonContent, forcedProvider);
     }
 
     /**
@@ -105,10 +113,24 @@ public class EvaluationService {
      */
     @Transactional
     public EvaluationUploadResponse processJsonString(String jsonContent) throws IOException {
+        return processJsonString(jsonContent, null);
+    }
+
+    private record StudentEvaluationInput(String studentId, JsonNode node) {}
+
+    /**
+     * Uploads and parses evaluation JSON with optional forced provider.
+     * Supports both Schema 2.0 (Gemini, Ollama object dictionaries) and Schema 1.0 (arrays).
+     */
+    @Transactional
+    public EvaluationUploadResponse processJsonString(String jsonContent, String forcedProvider) throws IOException {
         JsonNode root = objectMapper.readTree(jsonContent);
-        List<JsonNode> studentNodes = new ArrayList<>();
+        List<StudentEvaluationInput> studentInputs = new ArrayList<>();
         String rootWeek = null;
         String rootSection = null;
+        String rootProvider = (forcedProvider != null && !forcedProvider.trim().isEmpty())
+                ? forcedProvider.trim().toLowerCase()
+                : null;
 
         if (root.isObject()) {
             if (root.hasNonNull("week_id")) rootWeek = root.get("week_id").asText();
@@ -117,33 +139,62 @@ public class EvaluationService {
             if (root.hasNonNull("section_id")) rootSection = root.get("section_id").asText();
             else if (root.hasNonNull("section")) rootSection = root.get("section").asText();
 
-            if (root.has("students") && root.get("students").isArray()) {
-                for (JsonNode sNode : root.get("students")) {
-                    studentNodes.add(sNode);
+            if (rootProvider == null && root.hasNonNull("provider")) {
+                rootProvider = root.get("provider").asText().trim().toLowerCase();
+            }
+
+            if (root.has("students")) {
+                JsonNode studentsNode = root.get("students");
+                if (studentsNode.isObject()) {
+                    // Schema 2.0: Map of student_id -> student evaluation node
+                    Iterator<Map.Entry<String, JsonNode>> fields = studentsNode.fields();
+                    while (fields.hasNext()) {
+                        Map.Entry<String, JsonNode> entry = fields.next();
+                        studentInputs.add(new StudentEvaluationInput(entry.getKey(), entry.getValue()));
+                    }
+                } else if (studentsNode.isArray()) {
+                    // Legacy Schema 1.0: Array of student objects
+                    for (JsonNode sNode : studentsNode) {
+                        String sId = sNode.hasNonNull("student_id") ? sNode.get("student_id").asText() : null;
+                        studentInputs.add(new StudentEvaluationInput(sId, sNode));
+                    }
                 }
             } else if (root.has("student_id")) {
-                studentNodes.add(root);
+                studentInputs.add(new StudentEvaluationInput(root.get("student_id").asText(), root));
             }
         } else if (root.isArray()) {
             for (JsonNode sNode : root) {
-                studentNodes.add(sNode);
+                String sId = sNode.hasNonNull("student_id") ? sNode.get("student_id").asText() : null;
+                studentInputs.add(new StudentEvaluationInput(sId, sNode));
             }
         }
 
-        if (studentNodes.isEmpty()) {
+        if (studentInputs.isEmpty()) {
             throw new IllegalArgumentException("No student evaluations found in the provided JSON.");
         }
 
         Set<String> processedWeeks = new LinkedHashSet<>();
         int count = 0;
 
-        for (JsonNode sNode : studentNodes) {
-            String studentId = null;
-            if (sNode.hasNonNull("student_id")) {
-                studentId = sNode.get("student_id").asText().trim().toUpperCase();
+        for (StudentEvaluationInput input : studentInputs) {
+            String studentId = input.studentId();
+            JsonNode sNode = input.node();
+
+            if (studentId == null && sNode.hasNonNull("student_id")) {
+                studentId = sNode.get("student_id").asText();
             }
-            if (studentId == null || studentId.isEmpty()) {
+            if (studentId == null || studentId.trim().isEmpty()) {
                 continue;
+            }
+            studentId = studentId.trim().toUpperCase();
+
+            // Determine provider: forced provider -> root provider -> student node provider -> default "gemini"
+            String itemProvider = rootProvider;
+            if (itemProvider == null && sNode.hasNonNull("provider")) {
+                itemProvider = sNode.get("provider").asText().trim().toLowerCase();
+            }
+            if (itemProvider == null || itemProvider.isEmpty()) {
+                itemProvider = "gemini";
             }
 
             String rawWeek = null;
@@ -159,25 +210,35 @@ public class EvaluationService {
             else if (sNode.hasNonNull("section")) sectionId = sNode.get("section").asText();
             else sectionId = rootSection;
 
+            String modelName = sNode.hasNonNull("model_name") ? sNode.get("model_name").asText() : null;
+            String grade = sNode.hasNonNull("grade") ? sNode.get("grade").asText() : null;
+            String status = sNode.hasNonNull("status") ? sNode.get("status").asText() : null;
+
             // Extract scores and assessment
             ParsedScores scores = parseScores(sNode);
 
-            // CASE 3: Student exists and week exists -> REPLACE
-            // CASE 1 & 2: Student does not exist OR week does not exist -> INSERT
             final String studentIdToSave = studentId;
             final String weekToSave = weekInfo.displayName();
-            Optional<StudentEvaluation> existingOpt = evaluationRepository.findByStudentIdAndWeek(
-                    studentIdToSave, weekToSave
+            final String providerToSave = itemProvider;
+
+            // Multi-provider uniqueness: (student_id, week, provider)
+            Optional<StudentEvaluation> existingOpt = evaluationRepository.findByStudentIdAndWeekAndProvider(
+                    studentIdToSave, weekToSave, providerToSave
             );
 
             StudentEvaluation evaluation = existingOpt.orElseGet(() -> StudentEvaluation.builder()
                     .studentId(studentIdToSave)
                     .week(weekToSave)
+                    .provider(providerToSave)
                     .build()
             );
 
             evaluation.setWeekNumber(weekInfo.weekNumber());
             evaluation.setSectionId(sectionId);
+            evaluation.setProvider(providerToSave);
+            evaluation.setModelName(modelName);
+            evaluation.setGrade(grade);
+            evaluation.setStatus(status);
             evaluation.setObjectiveScore(scores.objectiveScore());
             evaluation.setProblemUnderstandingScore(scores.problemUnderstandingScore());
             evaluation.setLogicScore(scores.logicScore());
@@ -192,11 +253,11 @@ public class EvaluationService {
             count++;
         }
 
-        log.info("Processed {} student evaluations for weeks: {}", count, processedWeeks);
+        log.info("Processed {} student evaluations for provider '{}' across weeks: {}", count, rootProvider, processedWeeks);
 
         return EvaluationUploadResponse.builder()
                 .success(true)
-                .message("Successfully processed " + count + " student evaluations.")
+                .message("Successfully processed " + count + " " + (rootProvider != null ? rootProvider.toUpperCase() : "AI") + " evaluations.")
                 .processedCount(count)
                 .weeks(new ArrayList<>(processedWeeks))
                 .build();
@@ -204,6 +265,7 @@ public class EvaluationService {
 
     /**
      * Extracts scores and overall assessment from evaluation markdown or direct attributes.
+     * Supports Schema 2.0 criteria_scores (D1..D5) and Schema 1.0 tables.
      */
     private ParsedScores parseScores(JsonNode sNode) {
         String objective = null;
@@ -215,10 +277,36 @@ public class EvaluationService {
         String finalScore = null;
         String assessment = null;
 
-        // Check evaluation markdown text
-        String evalMarkdown = sNode.hasNonNull("evaluation") ? sNode.get("evaluation").asText() : "";
+        // 1. Schema 2.0: Structured criteria_scores (D1..D5)
+        if (sNode.has("criteria_scores") && sNode.get("criteria_scores").isObject()) {
+            JsonNode cNode = sNode.get("criteria_scores");
+            if (cNode.has("D1")) objective = formatCriteriaScore(cNode.get("D1"));
+            if (cNode.has("D2")) problem = formatCriteriaScore(cNode.get("D2"));
+            if (cNode.has("D3")) logic = formatCriteriaScore(cNode.get("D3"));
+            if (cNode.has("D4")) variables = formatCriteriaScore(cNode.get("D4"));
+            if (cNode.has("D5")) observed = formatCriteriaScore(cNode.get("D5"));
+        }
+
+        // Schema 2.0 direct score fields
+        if (sNode.hasNonNull("score_display")) {
+            finalScore = sanitize(sNode.get("score_display").asText());
+            total = finalScore;
+        } else if (sNode.hasNonNull("recommended_score")) {
+            double sc = sNode.get("recommended_score").asDouble();
+            double max = sNode.hasNonNull("max_score") ? sNode.get("max_score").asDouble() : 10.0;
+            finalScore = sc + " / " + max;
+            total = finalScore;
+        }
+
+        // 2. Schema 1.0 or legacy markdown inspection
+        String evalMarkdown = "";
+        if (sNode.hasNonNull("full_report_markdown")) {
+            evalMarkdown = sNode.get("full_report_markdown").asText();
+        } else if (sNode.hasNonNull("evaluation")) {
+            evalMarkdown = sNode.get("evaluation").asText();
+        }
+
         if (!evalMarkdown.isEmpty()) {
-            // Isolate the Overall Evaluation block so table headers from Compliance Matrix don't conflict
             String evalBlock = evalMarkdown;
             int overallEvalIdx = evalMarkdown.indexOf("### Overall Evaluation");
             if (overallEvalIdx != -1) {
@@ -230,17 +318,17 @@ public class EvaluationService {
                 }
             }
 
-            objective = extractRegex(OBJECTIVE_PATTERN, evalBlock);
-            problem = extractRegex(PROBLEM_PATTERN, evalBlock);
-            logic = extractRegex(LOGIC_PATTERN, evalBlock);
-            variables = extractRegex(VARIABLES_PATTERN, evalBlock);
-            observed = extractRegex(OBSERVED_PATTERN, evalBlock);
-            total = extractRegex(TOTAL_PATTERN, evalBlock);
-            finalScore = extractRegex(FINAL_SCORE_PATTERN, evalBlock);
+            if (objective == null) objective = extractRegex(OBJECTIVE_PATTERN, evalBlock);
+            if (problem == null) problem = extractRegex(PROBLEM_PATTERN, evalBlock);
+            if (logic == null) logic = extractRegex(LOGIC_PATTERN, evalBlock);
+            if (variables == null) variables = extractRegex(VARIABLES_PATTERN, evalBlock);
+            if (observed == null) observed = extractRegex(OBSERVED_PATTERN, evalBlock);
+            if (total == null) total = extractRegex(TOTAL_PATTERN, evalBlock);
+            if (finalScore == null) finalScore = extractRegex(FINAL_SCORE_PATTERN, evalBlock);
             assessment = extractRegex(ASSESSMENT_PATTERN, evalMarkdown);
         }
 
-        // Direct fallback fields if present
+        // 3. Fallback direct attributes
         if (objective == null && sNode.hasNonNull("objective_score")) objective = sanitize(sNode.get("objective_score").asText());
         if (problem == null && sNode.hasNonNull("problem_understanding_score")) problem = sanitize(sNode.get("problem_understanding_score").asText());
         if (logic == null && sNode.hasNonNull("logic_score")) logic = sanitize(sNode.get("logic_score").asText());
@@ -250,11 +338,26 @@ public class EvaluationService {
         if (finalScore == null && sNode.hasNonNull("final_score")) finalScore = sanitize(sNode.get("final_score").asText());
         if (assessment == null && sNode.hasNonNull("assessment")) assessment = sNode.get("assessment").asText();
 
-        // Default fallbacks if sections were completely missing
+        // 4. Fallback status or grade as assessment if missing
+        if (assessment == null) {
+            if (sNode.hasNonNull("status")) assessment = "Status: " + sNode.get("status").asText();
+            else if (sNode.hasNonNull("grade")) assessment = "Grade: " + sNode.get("grade").asText();
+            else assessment = "No assessment provided.";
+        }
         if (finalScore == null) finalScore = "N/A";
-        if (assessment == null) assessment = "No assessment provided.";
+        if (total == null) total = finalScore;
 
         return new ParsedScores(objective, problem, logic, variables, observed, total, finalScore, assessment);
+    }
+
+    private String formatCriteriaScore(JsonNode dNode) {
+        if (dNode == null) return null;
+        if (dNode.hasNonNull("score") && dNode.hasNonNull("max_score")) {
+            return dNode.get("score").asText() + " / " + dNode.get("max_score").asText();
+        } else if (dNode.hasNonNull("score")) {
+            return dNode.get("score").asText() + " / 2.0";
+        }
+        return null;
     }
 
     private String sanitize(String val) {
@@ -290,14 +393,14 @@ public class EvaluationService {
 
     /**
      * Builds the complete teacher evaluation grid response.
-     * Guarantees:
-     * - Each student has exactly one row.
-     * - Dynamic week columns sorted in natural order (Week 1, Week 2, Week 3...).
-     * - Evaluation cells contain compact score breakdown and human feedback review status.
+     * High-performance implementation:
+     * - Uses findAllSummaries() projection to avoid loading multi-megabyte raw JSON across the network.
+     * - Eliminates N+1 queries by pre-loading student names strictly from UserRepository.
+     * - Supports multi-provider metrics (Gemini, Ollama) per week cell.
      */
     @Transactional(readOnly = true)
     public TeacherEvaluationGridResponse getEvaluationGrid() {
-        List<StudentEvaluation> allEvaluations = evaluationRepository.findAllByOrderByIdAsc();
+        List<StudentEvaluationRepository.EvaluationSummaryProjection> allSummaries = evaluationRepository.findAllSummaries();
         List<TeacherFeedback> allFeedbacks = feedbackRepository.findAll();
 
         // Map feedback by key "studentId::week"
@@ -309,14 +412,14 @@ public class EvaluationService {
                 ));
 
         // Distinct weeks sorted by weekNumber ASC then week ASC
-        List<String> sortedWeeks = allEvaluations.stream()
-                .map(e -> new WeekInfo(e.getWeek(), e.getWeekNumber()))
+        List<String> sortedWeeks = allSummaries.stream()
+                .map(e -> new WeekInfo(e.getWeek(), e.getWeekNumber() != null ? e.getWeekNumber() : 1))
                 .distinct()
                 .sorted(Comparator.comparingInt(WeekInfo::weekNumber).thenComparing(WeekInfo::displayName))
                 .map(WeekInfo::displayName)
                 .collect(Collectors.toList());
 
-        // Pre-load student details from UserRepository and SubmissionRepository
+        // Pre-load student details from UserRepository ONLY (zero N+1 queries, zero submission table scans)
         Map<String, com.selva.authportal.model.User> userMap = new HashMap<>();
         try {
             List<com.selva.authportal.model.User> allUsers = userRepository.findAll();
@@ -330,22 +433,24 @@ public class EvaluationService {
             log.warn("Could not pre-load users for evaluation grid: {}", e.getMessage());
         }
 
-        try {
-            List<com.selva.authportal.model.Submission> allSubs = submissionRepository.findAll();
-            for (com.selva.authportal.model.Submission sub : allSubs) {
-                if (sub.getStudentId() != null && sub.getUser() != null) {
-                    userMap.putIfAbsent(sub.getStudentId().trim().toUpperCase(), sub.getUser());
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Could not pre-load submissions for evaluation grid: {}", e.getMessage());
+        // Multi-provider grouping: studentId -> week -> Map<provider, EvaluationSummaryProjection>
+        Map<String, Map<String, Map<String, StudentEvaluationRepository.EvaluationSummaryProjection>>> studentWeekProviderMap = new LinkedHashMap<>();
+
+        for (StudentEvaluationRepository.EvaluationSummaryProjection summary : allSummaries) {
+            String studentId = summary.getStudentId();
+            String week = summary.getWeek();
+            String provider = (summary.getProvider() != null) ? summary.getProvider().toLowerCase() : "gemini";
+
+            studentWeekProviderMap
+                    .computeIfAbsent(studentId, k -> new LinkedHashMap<>())
+                    .computeIfAbsent(week, k -> new LinkedHashMap<>())
+                    .put(provider, summary);
         }
 
-        // Maintain student insertion order
         Map<String, TeacherEvaluationRowDTO> rowMap = new LinkedHashMap<>();
 
-        for (StudentEvaluation eval : allEvaluations) {
-            String studentId = eval.getStudentId();
+        for (Map.Entry<String, Map<String, Map<String, StudentEvaluationRepository.EvaluationSummaryProjection>>> studentEntry : studentWeekProviderMap.entrySet()) {
+            String studentId = studentEntry.getKey();
             com.selva.authportal.model.User matchedUser = userMap.get(studentId.toUpperCase());
             String studentName = matchedUser != null ? matchedUser.getName() : null;
             String profilePic = matchedUser != null ? matchedUser.getProfilePicture() : null;
@@ -359,32 +464,82 @@ public class EvaluationService {
                     .build()
             );
 
-            if (row.getStudentName() == null && studentName != null) {
-                row.setStudentName(studentName);
+            for (Map.Entry<String, Map<String, StudentEvaluationRepository.EvaluationSummaryProjection>> weekEntry : studentEntry.getValue().entrySet()) {
+                String week = weekEntry.getKey();
+                Map<String, StudentEvaluationRepository.EvaluationSummaryProjection> provMap = weekEntry.getValue();
+
+                TeacherFeedback fb = feedbackMap.get(studentId + "::" + week);
+                boolean reviewed = (fb != null && fb.isReviewed());
+                String feedbackText = (fb != null) ? fb.getFeedbackText() : null;
+
+                // Build provider summaries
+                Map<String, EvaluationCellDTO.ProviderSummaryDTO> providerSummaries = new HashMap<>();
+                List<String> availableProviders = new ArrayList<>(provMap.keySet());
+                String geminiScore = null;
+                String ollamaScore = null;
+
+                for (Map.Entry<String, StudentEvaluationRepository.EvaluationSummaryProjection> pEntry : provMap.entrySet()) {
+                    String pName = pEntry.getKey();
+                    StudentEvaluationRepository.EvaluationSummaryProjection pSum = pEntry.getValue();
+
+                    if ("gemini".equalsIgnoreCase(pName)) {
+                        geminiScore = pSum.getFinalScore();
+                    } else if ("ollama".equalsIgnoreCase(pName)) {
+                        ollamaScore = pSum.getFinalScore();
+                    }
+
+                    if (row.getSectionId() == null && pSum.getSectionId() != null) {
+                        row.setSectionId(pSum.getSectionId());
+                    }
+
+                    providerSummaries.put(pName, EvaluationCellDTO.ProviderSummaryDTO.builder()
+                            .provider(pName)
+                            .modelName(pSum.getModelName())
+                            .finalScore(pSum.getFinalScore())
+                            .totalScore(pSum.getTotalScore())
+                            .grade(pSum.getGrade())
+                            .status(pSum.getStatus())
+                            .objectiveScore(pSum.getObjectiveScore())
+                            .problemUnderstandingScore(pSum.getProblemUnderstandingScore())
+                            .logicScore(pSum.getLogicScore())
+                            .variablesScore(pSum.getVariablesScore())
+                            .observationScore(pSum.getObservationScore())
+                            .build());
+                }
+
+                // Prefer Gemini as the default primary display if available, else Ollama, else first
+                StudentEvaluationRepository.EvaluationSummaryProjection primary = provMap.get("gemini");
+                if (primary == null) {
+                    primary = provMap.get("ollama");
+                }
+                if (primary == null && !provMap.isEmpty()) {
+                    primary = provMap.values().iterator().next();
+                }
+
+                EvaluationCellDTO cell = EvaluationCellDTO.builder()
+                        .studentId(studentId)
+                        .week(week)
+                        .objectiveScore(primary != null ? primary.getObjectiveScore() : null)
+                        .problemUnderstandingScore(primary != null ? primary.getProblemUnderstandingScore() : null)
+                        .logicScore(primary != null ? primary.getLogicScore() : null)
+                        .variablesScore(primary != null ? primary.getVariablesScore() : null)
+                        .observationScore(primary != null ? primary.getObservationScore() : null)
+                        .totalScore(primary != null ? primary.getTotalScore() : null)
+                        .finalScore(primary != null ? primary.getFinalScore() : null)
+                        .provider(primary != null ? primary.getProvider() : null)
+                        .modelName(primary != null ? primary.getModelName() : null)
+                        .grade(primary != null ? primary.getGrade() : null)
+                        .status(primary != null ? primary.getStatus() : null)
+                        .geminiScore(geminiScore)
+                        .ollamaScore(ollamaScore)
+                        .availableProviders(availableProviders)
+                        .providers(providerSummaries)
+                        .reviewed(reviewed)
+                        .feedbackText(feedbackText)
+                        .build();
+
+                row.getEvaluations().put(week, cell);
             }
-            if (row.getProfilePicture() == null && profilePic != null) {
-                row.setProfilePicture(profilePic);
-            }
-
-            TeacherFeedback fb = feedbackMap.get(studentId + "::" + eval.getWeek());
-            boolean reviewed = (fb != null && fb.isReviewed());
-            String feedbackText = (fb != null) ? fb.getFeedbackText() : null;
-
-            EvaluationCellDTO cell = EvaluationCellDTO.builder()
-                    .studentId(studentId)
-                    .week(eval.getWeek())
-                    .objectiveScore(eval.getObjectiveScore())
-                    .problemUnderstandingScore(eval.getProblemUnderstandingScore())
-                    .logicScore(eval.getLogicScore())
-                    .variablesScore(eval.getVariablesScore())
-                    .observationScore(eval.getObservationScore())
-                    .totalScore(eval.getTotalScore())
-                    .finalScore(eval.getFinalScore())
-                    .reviewed(reviewed)
-                    .feedbackText(feedbackText)
-                    .build();
-
-            row.getEvaluations().put(eval.getWeek(), cell);
         }
 
         return TeacherEvaluationGridResponse.builder()
@@ -413,7 +568,6 @@ public class EvaluationService {
     /**
      * Locates the exact matching Submission using the student's existing submission metadata:
      * Student ID + Week Number + Section (+ Academic Year/Level if available).
-     * Resolves multiple versions by preferring the highest revision / most recently updated submission.
      */
     public Submission findMatchingSubmission(String studentId, Integer weekNumber, Integer sectionNumber, String yearStr) {
         if (studentId == null || weekNumber == null) {
@@ -440,7 +594,6 @@ public class EvaluationService {
             return null;
         }
 
-        // If academic year is available, filter by matching YearLevel
         if (yearStr != null && !yearStr.trim().isEmpty()) {
             try {
                 YearLevel targetYear = YearLevel.valueOf(yearStr.trim().toUpperCase());
@@ -452,7 +605,6 @@ public class EvaluationService {
             } catch (IllegalArgumentException ignored) {}
         }
 
-        // Return the most authoritative candidate (highest version, most recent updatedAt)
         return candidates.get(0);
     }
 
@@ -463,13 +615,11 @@ public class EvaluationService {
         if (submission == null || submission.getFiles() == null || submission.getFiles().isEmpty()) {
             return null;
         }
-        // 1. Primary: Match FileType.PDF_REPORT
         for (SubmissionFile file : submission.getFiles()) {
             if (file.getFileType() == FileType.PDF_REPORT) {
                 return file;
             }
         }
-        // 2. Secondary fallback: file extension or original filename ending in .pdf
         for (SubmissionFile file : submission.getFiles()) {
             if (file.getFileExtension() != null && file.getFileExtension().equalsIgnoreCase(".pdf")) {
                 return file;
@@ -482,54 +632,69 @@ public class EvaluationService {
     }
 
     /**
-     * Retrieves detailed evaluation report, OCR text, PDF mapping, and teacher feedback for a single student and week.
+     * Retrieves detailed evaluation report for a single student and week (default provider).
      */
     @Transactional(readOnly = true)
     public SingleStudentReportResponse getStudentReport(String studentId, String week) {
+        return getStudentReport(studentId, week, null);
+    }
+
+    /**
+     * Retrieves detailed evaluation report, OCR text, PDF mapping, and teacher feedback
+     * for a single student, week, and specific provider (e.g. "gemini" or "ollama").
+     */
+    @Transactional(readOnly = true)
+    public SingleStudentReportResponse getStudentReport(String studentId, String week, String provider) {
         String normalizedId = studentId.trim().toUpperCase();
         WeekInfo weekInfo = normalizeWeek(week);
 
-        StudentEvaluation eval = evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName()
-                ));
+        List<StudentEvaluation> allEvals = evaluationRepository.findAllByStudentIdAndWeek(normalizedId, weekInfo.displayName());
+        if (allEvals.isEmpty()) {
+            throw new ResourceNotFoundException(
+                    "Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName()
+            );
+        }
+
+        List<String> availableProviders = allEvals.stream()
+                .map(StudentEvaluation::getProvider)
+                .filter(Objects::nonNull)
+                .map(String::toLowerCase)
+                .distinct()
+                .collect(Collectors.toList());
+
+        // Select requested provider or default to Gemini or first available
+        StudentEvaluation eval = null;
+        if (provider != null && !provider.trim().isEmpty()) {
+            String target = provider.trim().toLowerCase();
+            eval = allEvals.stream()
+                    .filter(e -> e.getProvider() != null && e.getProvider().equalsIgnoreCase(target))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (eval == null) {
+            eval = allEvals.stream()
+                    .filter(e -> "gemini".equalsIgnoreCase(e.getProvider()))
+                    .findFirst()
+                    .orElse(allEvals.get(0));
+        }
 
         TeacherFeedback fb = feedbackRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
                 .orElse(null);
 
-        Map<String, Object> extractionMap = null;
-        Map<String, Object> ocrMap = null;
-        Map<String, Object> sourceMap = null;
-        String rawMarkdown = null;
+        // 1. Authoritative mapping: Student + Week + Section -> Submission -> SubmissionFile(PDF_REPORT)
+        Integer sectionNumber = parseSectionNumber(eval.getSectionId());
         String yearStr = null;
-
-        if (eval.getRawJson() != null && !eval.getRawJson().isEmpty()) {
-            try {
-                JsonNode sNode = objectMapper.readTree(eval.getRawJson());
-                if (sNode.hasNonNull("evaluation")) {
-                    rawMarkdown = sNode.get("evaluation").asText();
-                }
-                if (sNode.has("extraction")) {
-                    extractionMap = objectMapper.convertValue(sNode.get("extraction"), new TypeReference<Map<String, Object>>() {});
-                }
-                if (sNode.has("ocr")) {
-                    ocrMap = objectMapper.convertValue(sNode.get("ocr"), new TypeReference<Map<String, Object>>() {});
-                }
-                if (sNode.has("source")) {
-                    sourceMap = objectMapper.convertValue(sNode.get("source"), new TypeReference<Map<String, Object>>() {});
-                }
-                if (sNode.hasNonNull("year")) {
-                    yearStr = sNode.get("year").asText();
-                } else if (sNode.hasNonNull("year_level")) {
-                    yearStr = sNode.get("year_level").asText();
-                }
-            } catch (Exception e) {
-                log.warn("Failed to parse rawJson for student {} and week {}: {}", normalizedId, weekInfo.displayName(), e.getMessage());
+        for (StudentEvaluation e : allEvals) {
+            if (e.getRawJson() != null && !e.getRawJson().isEmpty()) {
+                try {
+                    JsonNode sNode = objectMapper.readTree(e.getRawJson());
+                    if (sNode.hasNonNull("year")) yearStr = sNode.get("year").asText();
+                    else if (sNode.hasNonNull("year_level")) yearStr = sNode.get("year_level").asText();
+                    if (yearStr != null) break;
+                } catch (Exception ignored) {}
             }
         }
 
-        // Authoritative mapping: Student + Week + Section -> Submission -> SubmissionFile(PDF_REPORT) -> Backblaze B2
-        Integer sectionNumber = parseSectionNumber(eval.getSectionId());
         Submission matchingSubmission = findMatchingSubmission(eval.getStudentId(), eval.getWeekNumber(), sectionNumber, yearStr);
         SubmissionFile pdfFile = findPdfFile(matchingSubmission);
 
@@ -544,11 +709,73 @@ public class EvaluationService {
             pdfFilename = pdfFile.getOriginalFilename();
 
             String storageKey = pdfFile.getEffectiveStorageKey();
-            if (storageKey != null && storageService.fileExists(storageKey)) {
+            // Database-level existence check avoiding slow remote HTTP HEAD roundtrip to Backblaze B2
+            if (storageKey != null && !storageKey.trim().isEmpty()) {
                 pdfAvailable = true;
-            } else {
-                log.warn("PDF file record exists in database (id={}) but physical file not found in storage with key: {}",
-                        pdfFile.getId(), storageKey);
+            }
+        }
+
+        // 2. Build multi-provider bundled reports map for instant 0ms client-side switching
+        Map<String, SingleStudentReportResponse> reportsMap = new LinkedHashMap<>();
+        for (StudentEvaluation e : allEvals) {
+            SingleStudentReportResponse r = buildSingleReportDto(e, availableProviders, pdfAvailable, pdfFilename, submissionId, submissionFileId, fb);
+            String pKey = e.getProvider() != null ? e.getProvider().toLowerCase() : "default";
+            reportsMap.put(pKey, r);
+        }
+
+        // 3. Build active report and attach bundled reports map
+        SingleStudentReportResponse activeReport = buildSingleReportDto(eval, availableProviders, pdfAvailable, pdfFilename, submissionId, submissionFileId, fb);
+        activeReport.setReports(reportsMap);
+
+        return activeReport;
+    }
+
+    private SingleStudentReportResponse buildSingleReportDto(
+            StudentEvaluation eval,
+            List<String> availableProviders,
+            boolean pdfAvailable,
+            String pdfFilename,
+            Long submissionId,
+            Long submissionFileId,
+            TeacherFeedback fb
+    ) {
+        Map<String, Object> criteriaScoresMap = null;
+        List<String> strengthsList = null;
+        List<String> recommendationsList = null;
+        Map<String, Object> extractionMap = null;
+        Map<String, Object> ocrMap = null;
+        Map<String, Object> sourceMap = null;
+        String rawMarkdown = null;
+
+        if (eval.getRawJson() != null && !eval.getRawJson().isEmpty()) {
+            try {
+                JsonNode sNode = objectMapper.readTree(eval.getRawJson());
+                if (sNode.hasNonNull("full_report_markdown")) {
+                    rawMarkdown = sNode.get("full_report_markdown").asText();
+                } else if (sNode.hasNonNull("evaluation")) {
+                    rawMarkdown = sNode.get("evaluation").asText();
+                }
+
+                if (sNode.has("criteria_scores")) {
+                    criteriaScoresMap = objectMapper.convertValue(sNode.get("criteria_scores"), new TypeReference<Map<String, Object>>() {});
+                }
+                if (sNode.has("strengths")) {
+                    strengthsList = objectMapper.convertValue(sNode.get("strengths"), new TypeReference<List<String>>() {});
+                }
+                if (sNode.has("recommendations")) {
+                    recommendationsList = objectMapper.convertValue(sNode.get("recommendations"), new TypeReference<List<String>>() {});
+                }
+                if (sNode.has("extraction")) {
+                    extractionMap = objectMapper.convertValue(sNode.get("extraction"), new TypeReference<Map<String, Object>>() {});
+                }
+                if (sNode.has("ocr")) {
+                    ocrMap = objectMapper.convertValue(sNode.get("ocr"), new TypeReference<Map<String, Object>>() {});
+                }
+                if (sNode.has("source")) {
+                    sourceMap = objectMapper.convertValue(sNode.get("source"), new TypeReference<Map<String, Object>>() {});
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse rawJson for student {} and week {}: {}", eval.getStudentId(), eval.getWeek(), e.getMessage());
             }
         }
 
@@ -556,6 +783,11 @@ public class EvaluationService {
                 .studentId(eval.getStudentId())
                 .week(eval.getWeek())
                 .sectionId(eval.getSectionId())
+                .provider(eval.getProvider())
+                .modelName(eval.getModelName())
+                .grade(eval.getGrade())
+                .status(eval.getStatus())
+                .availableProviders(availableProviders)
                 .finalScore(eval.getFinalScore())
                 .assessment(eval.getAssessment())
                 .objectiveScore(eval.getObjectiveScore())
@@ -564,6 +796,9 @@ public class EvaluationService {
                 .variablesScore(eval.getVariablesScore())
                 .observationScore(eval.getObservationScore())
                 .totalScore(eval.getTotalScore())
+                .criteriaScores(criteriaScoresMap)
+                .strengths(strengthsList)
+                .recommendations(recommendationsList)
                 .rawEvaluationMarkdown(rawMarkdown)
                 .extraction(extractionMap)
                 .ocr(ocrMap)
@@ -579,17 +814,17 @@ public class EvaluationService {
 
     /**
      * Streams the student's uploaded PDF report for inline browser viewing.
-     * Uses authoritative metadata mapping: Student + Week + Section -> Submission -> SubmissionFile(PDF_REPORT) -> StorageService (Backblaze B2).
      */
     @Transactional(readOnly = true)
     public SubmissionService.DownloadableFile loadStudentPdf(String studentId, String week) {
         String normalizedId = studentId.trim().toUpperCase();
         WeekInfo weekInfo = normalizeWeek(week);
 
-        StudentEvaluation eval = evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName()
-                ));
+        List<StudentEvaluation> evals = evaluationRepository.findAllByStudentIdAndWeek(normalizedId, weekInfo.displayName());
+        if (evals.isEmpty()) {
+            throw new ResourceNotFoundException("Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName());
+        }
+        StudentEvaluation eval = evals.get(0);
 
         Integer sectionNumber = parseSectionNumber(eval.getSectionId());
         String yearStr = null;
@@ -631,7 +866,6 @@ public class EvaluationService {
 
     /**
      * Saves or updates teacher feedback for a specific (studentId, week).
-     * Strictly decoupled from AI evaluation: does NOT modify any AI scores or evaluations.
      */
     @Transactional
     public TeacherFeedbackResponse saveFeedback(TeacherFeedbackRequest request, String teacherEmail) {
@@ -652,22 +886,21 @@ public class EvaluationService {
         TeacherFeedback saved = feedbackRepository.save(feedback);
         log.info("Saved teacher feedback for {} and {}: reviewed={}", normalizedId, weekInfo.displayName(), saved.isReviewed());
 
-        // If score update is included with feedback submission, persist it as well
+        // If score update is included with feedback submission, persist it across matching evaluation records
         if (request.getFinalScore() != null && !request.getFinalScore().trim().isEmpty()) {
             double numScore = validateAndExtractNumericScore(request.getFinalScore(), request.getNumericScore());
             String formattedScore = formatFinalScoreString(request.getFinalScore(), numScore);
-            evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
-                    .ifPresent(eval -> {
-                        eval.setFinalScore(formattedScore);
-                        if (request.getObjectiveScore() != null) eval.setObjectiveScore(request.getObjectiveScore().trim());
-                        if (request.getProblemUnderstandingScore() != null) eval.setProblemUnderstandingScore(request.getProblemUnderstandingScore().trim());
-                        if (request.getLogicScore() != null) eval.setLogicScore(request.getLogicScore().trim());
-                        if (request.getVariablesScore() != null) eval.setVariablesScore(request.getVariablesScore().trim());
-                        if (request.getObservationScore() != null) eval.setObservationScore(request.getObservationScore().trim());
-                        if (request.getTotalScore() != null) eval.setTotalScore(request.getTotalScore().trim());
-                        evaluationRepository.save(eval);
-                        log.info("Updated final score & sections via feedback save for {} and {}: {}", normalizedId, weekInfo.displayName(), formattedScore);
-                    });
+            List<StudentEvaluation> evals = evaluationRepository.findAllByStudentIdAndWeek(normalizedId, weekInfo.displayName());
+            for (StudentEvaluation eval : evals) {
+                eval.setFinalScore(formattedScore);
+                if (request.getObjectiveScore() != null) eval.setObjectiveScore(request.getObjectiveScore().trim());
+                if (request.getProblemUnderstandingScore() != null) eval.setProblemUnderstandingScore(request.getProblemUnderstandingScore().trim());
+                if (request.getLogicScore() != null) eval.setLogicScore(request.getLogicScore().trim());
+                if (request.getVariablesScore() != null) eval.setVariablesScore(request.getVariablesScore().trim());
+                if (request.getObservationScore() != null) eval.setObservationScore(request.getObservationScore().trim());
+                if (request.getTotalScore() != null) eval.setTotalScore(request.getTotalScore().trim());
+                evaluationRepository.save(eval);
+            }
         }
 
         return TeacherFeedbackResponse.builder()
@@ -682,7 +915,6 @@ public class EvaluationService {
 
     /**
      * Updates the final awarded score and section-by-section breakdown for a student evaluation report.
-     * Strictly validates that the numeric score falls within 0.0 and 10.0 inclusive.
      */
     @Transactional
     public SingleStudentReportResponse updateScore(ScoreUpdateRequest request, String teacherEmail) {
@@ -692,30 +924,29 @@ public class EvaluationService {
         double numericScore = validateAndExtractNumericScore(request.getFinalScore(), request.getNumericScore());
         String formattedFinalScore = formatFinalScoreString(request.getFinalScore(), numericScore);
 
-        StudentEvaluation eval = evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName()
-                ));
+        List<StudentEvaluation> evals = evaluationRepository.findAllByStudentIdAndWeek(normalizedId, weekInfo.displayName());
+        if (evals.isEmpty()) {
+            throw new ResourceNotFoundException(
+                    "Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName()
+            );
+        }
 
-        eval.setFinalScore(formattedFinalScore);
-        if (request.getObjectiveScore() != null) eval.setObjectiveScore(request.getObjectiveScore().trim());
-        if (request.getProblemUnderstandingScore() != null) eval.setProblemUnderstandingScore(request.getProblemUnderstandingScore().trim());
-        if (request.getLogicScore() != null) eval.setLogicScore(request.getLogicScore().trim());
-        if (request.getVariablesScore() != null) eval.setVariablesScore(request.getVariablesScore().trim());
-        if (request.getObservationScore() != null) eval.setObservationScore(request.getObservationScore().trim());
-        if (request.getTotalScore() != null) eval.setTotalScore(request.getTotalScore().trim());
+        for (StudentEvaluation eval : evals) {
+            eval.setFinalScore(formattedFinalScore);
+            if (request.getObjectiveScore() != null) eval.setObjectiveScore(request.getObjectiveScore().trim());
+            if (request.getProblemUnderstandingScore() != null) eval.setProblemUnderstandingScore(request.getProblemUnderstandingScore().trim());
+            if (request.getLogicScore() != null) eval.setLogicScore(request.getLogicScore().trim());
+            if (request.getVariablesScore() != null) eval.setVariablesScore(request.getVariablesScore().trim());
+            if (request.getObservationScore() != null) eval.setObservationScore(request.getObservationScore().trim());
+            if (request.getTotalScore() != null) eval.setTotalScore(request.getTotalScore().trim());
+            evaluationRepository.save(eval);
+        }
 
-        StudentEvaluation saved = evaluationRepository.save(eval);
-        log.info("Teacher {} updated scores for {} and {} to {} (raw total: {})",
-                teacherEmail, normalizedId, weekInfo.displayName(), formattedFinalScore, saved.getTotalScore());
+        log.info("Teacher {} updated scores for {} and {} to {}", teacherEmail, normalizedId, weekInfo.displayName(), formattedFinalScore);
 
-        return getStudentReport(saved.getStudentId(), saved.getWeek());
+        return getStudentReport(normalizedId, weekInfo.displayName(), null);
     }
 
-    /**
-     * Extracts and validates numeric score from finalScore string or direct Double.
-     * Strictly ensures score is between 0.0 and 10.0 inclusive.
-     */
     public static double validateAndExtractNumericScore(String finalScore, Double directNumeric) {
         Double scoreVal = directNumeric;
         if (scoreVal == null && finalScore != null && !finalScore.trim().isEmpty()) {
@@ -740,10 +971,6 @@ public class EvaluationService {
         return scoreVal;
     }
 
-    /**
-     * Formats the final score string consistently.
-     * Preserves existing fractional precision (e.g. 7.94, 8.5) and retains or attaches " / 10".
-     */
     public static String formatFinalScoreString(String finalScore, double validatedNumeric) {
         String trimmed = (finalScore != null) ? finalScore.trim() : "";
         if (trimmed.contains("/")) {
@@ -756,20 +983,33 @@ public class EvaluationService {
     }
 
     /**
-     * Deletes an evaluation report and associated teacher feedback for a specific (studentId, week).
+     * Deletes an evaluation report (optionally scoped to provider) and associated teacher feedback.
      */
     @Transactional
     public void deleteStudentReport(String studentId, String week) {
+        deleteStudentReport(studentId, week, null);
+    }
+
+    @Transactional
+    public void deleteStudentReport(String studentId, String week, String provider) {
         String normalizedId = studentId.trim().toUpperCase();
         WeekInfo weekInfo = normalizeWeek(week);
 
-        evaluationRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
-                .ifPresent(evaluationRepository::delete);
+        if (provider != null && !provider.trim().isEmpty()) {
+            evaluationRepository.findByStudentIdAndWeekAndProvider(normalizedId, weekInfo.displayName(), provider.trim().toLowerCase())
+                    .ifPresent(evaluationRepository::delete);
+        } else {
+            List<StudentEvaluation> evals = evaluationRepository.findAllByStudentIdAndWeek(normalizedId, weekInfo.displayName());
+            evaluationRepository.deleteAll(evals);
+        }
 
-        feedbackRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
-                .ifPresent(feedbackRepository::delete);
+        List<StudentEvaluation> remaining = evaluationRepository.findAllByStudentIdAndWeek(normalizedId, weekInfo.displayName());
+        if (remaining.isEmpty()) {
+            feedbackRepository.findByStudentIdAndWeek(normalizedId, weekInfo.displayName())
+                    .ifPresent(feedbackRepository::delete);
+        }
 
-        log.info("Deleted evaluation report and feedback for {} and {}", normalizedId, weekInfo.displayName());
+        log.info("Deleted evaluation report for {} and {} (provider: {})", normalizedId, weekInfo.displayName(), provider);
     }
 
     /**

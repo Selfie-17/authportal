@@ -32,24 +32,26 @@ public class TeacherEvaluationController {
     private final EvaluationService evaluationService;
 
     /**
-     * Uploads and processes an evaluation JSON file (multipart/form-data).
+     * Uploads and processes an evaluation JSON file (multipart/form-data) with optional provider.
      */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<EvaluationUploadResponse> uploadEvaluationFile(
-            @RequestParam("file") MultipartFile file
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "provider", required = false) String provider
     ) throws IOException {
-        EvaluationUploadResponse response = evaluationService.processJsonUpload(file);
+        EvaluationUploadResponse response = evaluationService.processJsonUpload(file, provider);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /**
-     * Directly posts an evaluation JSON string (application/json).
+     * Directly posts an evaluation JSON string (application/json) with optional provider.
      */
     @PostMapping(value = "/upload-json", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<EvaluationUploadResponse> uploadEvaluationJson(
-            @RequestBody String jsonContent
+            @RequestBody String jsonContent,
+            @RequestParam(value = "provider", required = false) String provider
     ) throws IOException {
-        EvaluationUploadResponse response = evaluationService.processJsonString(jsonContent);
+        EvaluationUploadResponse response = evaluationService.processJsonString(jsonContent, provider);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -63,14 +65,15 @@ public class TeacherEvaluationController {
     }
 
     /**
-     * Fetches the single-student detailed report for a specific Student ID and Week.
+     * Fetches the single-student detailed report for a specific Student ID, Week, and optional Provider.
      */
     @GetMapping("/report")
     public ResponseEntity<SingleStudentReportResponse> getStudentReport(
             @RequestParam("studentId") String studentId,
-            @RequestParam("week") String week
+            @RequestParam("week") String week,
+            @RequestParam(value = "provider", required = false) String provider
     ) {
-        SingleStudentReportResponse report = evaluationService.getStudentReport(studentId, week);
+        SingleStudentReportResponse report = evaluationService.getStudentReport(studentId, week, provider);
         return ResponseEntity.ok(report);
     }
 
@@ -115,18 +118,21 @@ public class TeacherEvaluationController {
     }
 
     /**
-     * Deletes a student's evaluation report for a specific week, or all reports if week is not specified.
+     * Deletes a student's evaluation report for a specific week (optionally provider-scoped), or all reports if week is not specified.
      */
     @DeleteMapping("/report")
     public ResponseEntity<ApiResponse> deleteStudentReport(
             @RequestParam("studentId") String studentId,
-            @RequestParam(value = "week", required = false) String week
+            @RequestParam(value = "week", required = false) String week,
+            @RequestParam(value = "provider", required = false) String provider
     ) {
         if (week != null && !week.trim().isEmpty()) {
-            evaluationService.deleteStudentReport(studentId, week);
+            evaluationService.deleteStudentReport(studentId, week, provider);
+            String msg = "Evaluation report for student " + studentId + " (" + week +
+                    (provider != null ? " - " + provider : "") + ") deleted successfully.";
             return ResponseEntity.ok(ApiResponse.builder()
                     .success(true)
-                    .message("Evaluation report for student " + studentId + " (" + week + ") deleted successfully.")
+                    .message(msg)
                     .build());
         } else {
             evaluationService.deleteAllReportsForStudent(studentId);

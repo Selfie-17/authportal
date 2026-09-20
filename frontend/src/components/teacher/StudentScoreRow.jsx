@@ -27,6 +27,7 @@ export default function StudentScoreRow({
   onToggleWeek,
   onViewReport,
   onDeleteReport,
+  providerFilter = 'all',
 }) {
   const studentId = (row.studentId || '').toUpperCase();
   const evaluations = row.evaluations || {};
@@ -131,6 +132,7 @@ export default function StudentScoreRow({
               evaluation={ev}
               isActive={isActive}
               onToggleWeek={onToggleWeek}
+              providerFilter={providerFilter}
             />
           );
         })}

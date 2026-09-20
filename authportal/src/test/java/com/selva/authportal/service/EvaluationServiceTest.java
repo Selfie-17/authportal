@@ -46,9 +46,9 @@ class EvaluationServiceTest {
 
     @BeforeEach
     void cleanUp() {
-        evaluationRepository.deleteAll();
-        feedbackRepository.deleteAll();
-        submissionRepository.deleteAll();
+        evaluationRepository.deleteAllInBatch();
+        feedbackRepository.deleteAllInBatch();
+        submissionRepository.deleteAllInBatch();
     }
 
     private static final String SAMPLE_WEEK_1_JSON = """
@@ -658,5 +658,111 @@ class EvaluationServiceTest {
                 IllegalArgumentException.class,
                 () -> evaluationService.updateScore(tooHighReq, "teacher@rguktn.ac.in")
         );
+    }
+
+    @Test
+    @DisplayName("Schema 2.0: Upload both Gemini and Ollama JSONs, verify coexistence and dual report viewing")
+    void testGeminiAndOllamaSchema2Coexistence() throws IOException {
+        String geminiJson = """
+                {
+                  "schema_version": "2.0",
+                  "section_id": "SEC2",
+                  "week_id": "week-04",
+                  "provider": "gemini",
+                  "total_students": 1,
+                  "students": {
+                    "N240035": {
+                      "provider": "gemini",
+                      "model_name": "gemini-2.5-flash",
+                      "recommended_score": 7.5,
+                      "max_score": 10.0,
+                      "score_display": "7.5 / 10.0",
+                      "grade": "B+",
+                      "status": "Approved",
+                      "criteria_scores": {
+                        "D1": { "name": "Syntax & Code Validity", "score": 1.0, "max_score": 2.0, "justification": "Clean declarations." },
+                        "D2": { "name": "Algorithmic Logic", "score": 1.8, "max_score": 2.0, "justification": "Good loops." },
+                        "D3": { "name": "Observation Report Quality", "score": 1.4, "max_score": 2.0, "justification": "Clear problem." },
+                        "D4": { "name": "Conceptual Understanding", "score": 1.8, "max_score": 2.0, "justification": "Solid grasp." },
+                        "D5": { "name": "Novelty & Readiness", "score": 1.5, "max_score": 2.0, "justification": "Modular." }
+                      },
+                      "strengths": ["Modular code."],
+                      "recommendations": ["Add return statements."],
+                      "full_report_markdown": "# Gemini Evaluation Report\\n\\nStudent N240035 details."
+                    }
+                  }
+                }
+                """;
+
+        String ollamaJson = """
+                {
+                  "schema_version": "2.0",
+                  "section_id": "SEC2",
+                  "week_id": "week-04",
+                  "provider": "ollama",
+                  "total_students": 1,
+                  "students": {
+                    "N240035": {
+                      "provider": "ollama",
+                      "model_name": "qwen2.5-coder:3b",
+                      "recommended_score": 0.0,
+                      "max_score": 10.0,
+                      "score_display": "0.0 / 10.0",
+                      "grade": "F",
+                      "status": "Needs Revision",
+                      "criteria_scores": {
+                        "D1": { "name": "Syntax & Code Validity", "score": 0.0, "max_score": 2.0, "justification": "Syntax errors." },
+                        "D2": { "name": "Algorithmic Logic", "score": 0.0, "max_score": 2.0, "justification": "Logical errors." },
+                        "D3": { "name": "Observation Report Quality", "score": 0.0, "max_score": 2.0, "justification": "Incomplete report." },
+                        "D4": { "name": "Conceptual Understanding", "score": 0.0, "max_score": 2.0, "justification": "Mismatch." },
+                        "D5": { "name": "Novelty & Readiness", "score": 0.0, "max_score": 2.0, "justification": "None." }
+                      },
+                      "strengths": ["Attempts made."],
+                      "recommendations": ["Fix syntax."],
+                      "full_report_markdown": "# Ollama Evaluation Report\\n\\nStudent N240035 needs revision."
+                    }
+                  }
+                }
+                """;
+
+        // 1. Upload Gemini
+        EvaluationUploadResponse resp1 = evaluationService.processJsonString(geminiJson, "gemini");
+        assertThat(resp1.isSuccess()).isTrue();
+        assertThat(resp1.getProcessedCount()).isEqualTo(1);
+
+        // 2. Upload Ollama (same student, same week)
+        EvaluationUploadResponse resp2 = evaluationService.processJsonString(ollamaJson, "ollama");
+        assertThat(resp2.isSuccess()).isTrue();
+        assertThat(resp2.getProcessedCount()).isEqualTo(1);
+
+        // 3. Verify Grid has both providers
+        TeacherEvaluationGridResponse grid = evaluationService.getEvaluationGrid();
+        assertThat(grid.getRows()).hasSize(1);
+        TeacherEvaluationRowDTO row = grid.getRows().get(0);
+        assertThat(row.getStudentId()).isEqualTo("N240035");
+
+        EvaluationCellDTO cell = row.getEvaluations().get("Week 4");
+        assertThat(cell).isNotNull();
+        assertThat(cell.getGeminiScore()).isEqualTo("7.5 / 10.0");
+        assertThat(cell.getOllamaScore()).isEqualTo("0.0 / 10.0");
+        assertThat(cell.getAvailableProviders()).containsExactlyInAnyOrder("gemini", "ollama");
+
+        // 4. Fetch Gemini Report specifically
+        SingleStudentReportResponse geminiReport = evaluationService.getStudentReport("N240035", "Week 4", "gemini");
+        assertThat(geminiReport.getProvider()).isEqualTo("gemini");
+        assertThat(geminiReport.getModelName()).isEqualTo("gemini-2.5-flash");
+        assertThat(geminiReport.getFinalScore()).isEqualTo("7.5 / 10.0");
+        assertThat(geminiReport.getGrade()).isEqualTo("B+");
+        assertThat(geminiReport.getStatus()).isEqualTo("Approved");
+        assertThat(geminiReport.getAvailableProviders()).containsExactlyInAnyOrder("gemini", "ollama");
+
+        // 5. Fetch Ollama Report specifically
+        SingleStudentReportResponse ollamaReport = evaluationService.getStudentReport("N240035", "Week 4", "ollama");
+        assertThat(ollamaReport.getProvider()).isEqualTo("ollama");
+        assertThat(ollamaReport.getModelName()).isEqualTo("qwen2.5-coder:3b");
+        assertThat(ollamaReport.getFinalScore()).isEqualTo("0.0 / 10.0");
+        assertThat(ollamaReport.getGrade()).isEqualTo("F");
+        assertThat(ollamaReport.getStatus()).isEqualTo("Needs Revision");
+        assertThat(ollamaReport.getAvailableProviders()).containsExactlyInAnyOrder("gemini", "ollama");
     }
 }

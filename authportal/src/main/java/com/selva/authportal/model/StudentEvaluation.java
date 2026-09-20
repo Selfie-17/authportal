@@ -15,12 +15,14 @@ import java.time.Instant;
 @Table(
         name = "student_evaluations",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uq_eval_student_week", columnNames = {"student_id", "week"})
+                @UniqueConstraint(name = "uq_eval_student_week_provider", columnNames = {"student_id", "week", "provider"})
         },
         indexes = {
                 @Index(name = "idx_eval_student_id", columnList = "student_id"),
                 @Index(name = "idx_eval_week", columnList = "week"),
-                @Index(name = "idx_eval_week_number", columnList = "week_number")
+                @Index(name = "idx_eval_week_number", columnList = "week_number"),
+                @Index(name = "idx_eval_student_provider", columnList = "student_id, provider"),
+                @Index(name = "idx_eval_provider", columnList = "provider")
         }
 )
 @Getter
@@ -43,6 +45,19 @@ public class StudentEvaluation {
     @Column(name = "week_number", nullable = false)
     @Builder.Default
     private Integer weekNumber = 1;
+
+    @Column(name = "provider", nullable = false, length = 32)
+    @Builder.Default
+    private String provider = "gemini";
+
+    @Column(name = "model_name", length = 64)
+    private String modelName;
+
+    @Column(name = "grade", length = 16)
+    private String grade;
+
+    @Column(name = "status", length = 32)
+    private String status;
 
     @Column(name = "section_id", length = 32)
     private String sectionId;

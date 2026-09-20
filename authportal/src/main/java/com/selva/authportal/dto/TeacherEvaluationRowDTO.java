@@ -21,6 +21,9 @@ public class TeacherEvaluationRowDTO {
     private String studentId;
     private String studentName;
     private String profilePicture;
+    private String year;
+    private String section;
+    private String sectionId;
     @Builder.Default
     private Map<String, EvaluationCellDTO> evaluations = new HashMap<>();
 }

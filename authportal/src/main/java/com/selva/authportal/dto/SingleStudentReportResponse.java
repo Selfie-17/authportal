@@ -5,11 +5,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Detailed single-student evaluation response containing score breakdown,
- * question/program analyses from the JSON, and separate teacher feedback.
+ * question/program analyses from the JSON, multi-provider support (Gemini, Ollama),
+ * and separate teacher feedback.
  */
 @Data
 @Builder
@@ -22,13 +25,30 @@ public class SingleStudentReportResponse {
     private String finalScore;
     private String assessment;
 
-    // Section breakdown
+    // Multi-provider metadata
+    private String provider;
+    private String modelName;
+    private String grade;
+    private String status;
+
+    @Builder.Default
+    private List<String> availableProviders = new ArrayList<>();
+
+    // Multi-provider bundled reports map (e.g. "gemini" -> report, "ollama" -> report)
+    private Map<String, SingleStudentReportResponse> reports;
+
+    // Section breakdown (D1–D5 or legacy criteria)
     private String objectiveScore;
     private String problemUnderstandingScore;
     private String logicScore;
     private String variablesScore;
     private String observationScore;
     private String totalScore;
+
+    // Structured Schema 2.0 evaluation data
+    private Map<String, Object> criteriaScores;
+    private List<String> strengths;
+    private List<String> recommendations;
 
     // Detailed report content
     private String rawEvaluationMarkdown;

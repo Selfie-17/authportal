@@ -3,7 +3,8 @@ import React from 'react';
 /**
  * Inline Expanded Week Report Card.
  * Inserts directly beneath the active student row and spans the full table width.
- * Displays breakdown metric chips, final score, review badge, and View Report button.
+ * Displays multi-provider breakdown (Gemini, Ollama), score chips, review badge,
+ * and direct "View Gemini Report" / "View Ollama Report" buttons.
  */
 export default function ExpandedWeekReport({
   studentId,
@@ -17,7 +18,18 @@ export default function ExpandedWeekReport({
   const numScore = parseFloat(evaluation.finalScore);
   const formattedScore = !isNaN(numScore) ? numScore.toFixed(1) : (evaluation.finalScore || '—');
 
-  // Compute realistic lab date range based on week number if available
+  // Multi-provider evaluations check
+  const availableProviders = evaluation.availableProviders || (evaluation.provider ? [evaluation.provider] : []);
+  const hasGemini = availableProviders.includes('gemini') || !!evaluation.geminiScore;
+  const hasOllama = availableProviders.includes('ollama') || !!evaluation.ollamaScore;
+
+  const geminiData = evaluation.providers?.gemini;
+  const ollamaData = evaluation.providers?.ollama;
+
+  const geminiScore = evaluation.geminiScore || geminiData?.finalScore;
+  const ollamaScore = evaluation.ollamaScore || ollamaData?.finalScore;
+
+  // Compute lab date range subtext
   const weekNumMatch = weekName.match(/\d+/);
   const weekNum = weekNumMatch ? parseInt(weekNumMatch[0], 10) : 1;
   const dateSubtext = `Week ${weekNum} Evaluation Cycle • 2025`;
@@ -37,9 +49,29 @@ export default function ExpandedWeekReport({
         </div>
 
         <div className="expanded-week-badges-col">
-          <div className="expanded-score-pill">
-            <strong>{formattedScore}</strong> / 10
-          </div>
+          {/* Multi-provider score pills */}
+          {hasGemini && (
+            <div className="expanded-score-pill gemini-pill" title="Gemini 2.5 Flash Evaluation Score">
+              <span className="provider-icon">✨</span>
+              <span>Gemini:</span>
+              <strong>{geminiScore || formattedScore}</strong>
+            </div>
+          )}
+
+          {hasOllama && (
+            <div className="expanded-score-pill ollama-pill" title="Ollama (Qwen2.5 Coder) Evaluation Score">
+              <span className="provider-icon">🦙</span>
+              <span>Ollama:</span>
+              <strong>{ollamaScore || formattedScore}</strong>
+            </div>
+          )}
+
+          {!hasGemini && !hasOllama && (
+            <div className="expanded-score-pill">
+              <strong>{formattedScore}</strong> / 10
+            </div>
+          )}
+
           {evaluation.reviewed ? (
             <span className="expanded-review-tag reviewed">
               ✓ Reviewed
@@ -56,45 +88,51 @@ export default function ExpandedWeekReport({
       <div className="expanded-week-body">
         <div className="expanded-metrics-chips">
           <div className="exp-metric-card">
-            <span className="exp-metric-label">Objective</span>
+            <span className="exp-metric-label">D1: Syntax</span>
             <span className="exp-metric-value">{evaluation.objectiveScore || '—'}</span>
           </div>
 
           <div className="exp-metric-card">
-            <span className="exp-metric-label">Problem</span>
+            <span className="exp-metric-label">D2: Logic</span>
             <span className="exp-metric-value">{evaluation.problemUnderstandingScore || '—'}</span>
           </div>
 
           <div className="exp-metric-card">
-            <span className="exp-metric-label">Logic</span>
+            <span className="exp-metric-label">D3: Report</span>
             <span className="exp-metric-value">{evaluation.logicScore || '—'}</span>
           </div>
 
           <div className="exp-metric-card">
-            <span className="exp-metric-label">Variables</span>
+            <span className="exp-metric-label">D4: Concept</span>
             <span className="exp-metric-value">{evaluation.variablesScore || '—'}</span>
           </div>
 
           <div className="exp-metric-card">
-            <span className="exp-metric-label">Observed</span>
+            <span className="exp-metric-label">D5: Novelty</span>
             <span className="exp-metric-value">{evaluation.observationScore || '—'}</span>
           </div>
 
           <div className="exp-metric-card total-metric">
             <span className="exp-metric-label">Total</span>
-            <span className="exp-metric-value">{evaluation.totalScore || '—'}</span>
+            <span className="exp-metric-value">{evaluation.totalScore || formattedScore}</span>
           </div>
         </div>
 
+        {/* Action Button: View Report, Delete */}
         <div className="expanded-actions-col">
           <button
             type="button"
             className="btn-view-report-primary"
-            onClick={() => onViewReport({ studentId, week: weekName })}
-            title={`Open full detailed lab evaluation report and feedback for ${studentId} (${weekName})`}
+            onClick={() => onViewReport({
+              studentId,
+              week: weekName,
+              provider: hasGemini ? 'gemini' : hasOllama ? 'ollama' : undefined
+            })}
+            title={`Open evaluation report for ${studentId} (${weekName})`}
           >
             <span>📄</span> View Report
           </button>
+
           {onDeleteReport && (
             <button
               type="button"
@@ -102,7 +140,7 @@ export default function ExpandedWeekReport({
               onClick={() => onDeleteReport({ studentId, week: weekName })}
               title={`Delete ${weekName} evaluation report for ${studentId}`}
             >
-              <span>🗑️</span> Delete Report
+              <span>🗑️</span> Delete
             </button>
           )}
         </div>

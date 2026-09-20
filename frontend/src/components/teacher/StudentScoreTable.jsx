@@ -11,6 +11,7 @@ export default function StudentScoreTable({
   studentMetaMap = {},
   onViewReport,
   onDeleteReport,
+  providerFilter = 'all',
 }) {
   // Map of active expanded week per student: { [studentId]: 'Week 1' }
   const [expandedWeeks, setExpandedWeeks] = useState({});
@@ -84,6 +85,7 @@ export default function StudentScoreTable({
                   onToggleWeek={(targetWeek) => handleToggleWeek(sId, targetWeek)}
                   onViewReport={onViewReport}
                   onDeleteReport={onDeleteReport}
+                  providerFilter={providerFilter}
                 />
               );
             })}

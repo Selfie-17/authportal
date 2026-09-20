@@ -86,6 +86,7 @@ export default function UploadedPdfViewer({
   report,
 }) {
   const [blobUrl, setBlobUrl] = useState(null);
+  const [pdfBytes, setPdfBytes] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -99,76 +100,80 @@ export default function UploadedPdfViewer({
   const sourceFilename = report?.pdfFilename || report?.source?.filename || 'observation_report.pdf';
   const isAvailable = report?.pdfAvailable;
 
+  const loadPdfFromStorage = async (force = false) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await evaluationService.getStudentPdfData(studentId, week, force);
+      if (data) {
+        setBlobUrl(data.blobUrl);
+        setPdfBytes(data.uint8Array);
+      }
+    } catch (err) {
+      console.error('Failed to load student PDF from storage:', err);
+      setError(err.message || 'Original PDF is not available for this submission.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    let currentBlob = null;
-    let isMounted = true;
+    // If report specifically says no PDF and we don't have cache, show missing state but allow manual retry
+    if (isAvailable === false && !evaluationService.pdfCache.has(studentId, week)) {
+      setLoading(false);
+      setError('Original PDF is not available for this submission.');
+      return;
+    }
 
-    const fetchPdf = async () => {
-      if (isAvailable === false) {
-        setLoading(false);
-        setError('Original PDF is not available for this submission.');
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        const url = await evaluationService.getStudentPdfBlobUrl(studentId, week);
-        if (isMounted) {
-          currentBlob = url;
-          setBlobUrl(url);
-        } else {
-          window.URL.revokeObjectURL(url);
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError(err.message || 'Original PDF is not available for this submission.');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchPdf();
+    loadPdfFromStorage(false);
 
     return () => {
-      isMounted = false;
-      if (currentBlob) {
-        window.URL.revokeObjectURL(currentBlob);
-      }
+      // NOTE: Do NOT revoke the blob URL here! pdfCache owns the blob URL and re-uses it across tab mounts.
     };
   }, [studentId, week, isAvailable]);
 
   // Load PDF with PDF.js for pure light canvas rendering
   useEffect(() => {
-    if (!blobUrl) return;
+    if (!pdfBytes && !blobUrl) return;
 
     let cancel = false;
-    const loadingTask = pdfjsLib.getDocument({ url: blobUrl });
+    let loadingTask = null;
 
-    loadingTask.promise
-      .then((loadedPdf) => {
-        if (!cancel) {
-          setPdfDoc(loadedPdf);
-          setNumPages(loadedPdf.numPages);
-          setPdfJsError(false);
-        }
-      })
-      .catch((err) => {
-        console.warn('PDF.js loading failed, falling back to browser iframe:', err);
-        if (!cancel) {
-          setPdfJsError(true);
-          setViewerMode('browser');
-        }
-      });
+    try {
+      // Pass Uint8Array binary data directly to prevent worker CORS / blob-fetch issues
+      const source = pdfBytes ? { data: pdfBytes } : { url: blobUrl };
+      loadingTask = pdfjsLib.getDocument(source);
+
+      loadingTask.promise
+        .then((loadedPdf) => {
+          if (!cancel) {
+            setPdfDoc(loadedPdf);
+            setNumPages(loadedPdf.numPages);
+            setPdfJsError(false);
+          }
+        })
+        .catch((err) => {
+          console.warn('PDF.js loading failed, falling back to browser iframe:', err);
+          if (!cancel) {
+            setPdfJsError(true);
+            setViewerMode('browser');
+          }
+        });
+    } catch (err) {
+      console.warn('PDF.js task init failed:', err);
+      if (!cancel) {
+        setPdfJsError(true);
+        setViewerMode('browser');
+      }
+    }
 
     return () => {
       cancel = true;
-      loadingTask.destroy().catch(() => {});
+      if (loadingTask) {
+        loadingTask.destroy().catch(() => {});
+      }
     };
-  }, [blobUrl]);
+  }, [pdfBytes, blobUrl]);
 
   const handleDownload = () => {
     evaluationService.downloadStudentPdf(studentId, week, sourceFilename);
@@ -176,7 +181,7 @@ export default function UploadedPdfViewer({
 
   const handleOpenInNewTab = () => {
     if (blobUrl) {
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      window.open(blobUrl, '_blank');
     }
   };
 
@@ -210,8 +215,7 @@ export default function UploadedPdfViewer({
         <div className="pdf-missing-icon">📑</div>
         <h3 className="pdf-missing-title">Original PDF is not available for this submission.</h3>
         <p className="pdf-missing-desc">
-          The evaluation report for <strong>{studentId} ({week})</strong> was processed from OCR data,
-          but the student has not uploaded their PDF lab report file through the student submission portal, or the file was not found in storage.
+          {error || `The evaluation report for ${studentId} (${week}) was processed from OCR data, but the student has not uploaded their PDF lab report file through the student submission portal, or the file was not found in storage.`}
         </p>
 
         <div className="pdf-missing-meta-box">
@@ -220,6 +224,15 @@ export default function UploadedPdfViewer({
           {report?.sectionId && <div><span>Section:</span> <strong>{report.sectionId}</strong></div>}
           {sourceFilename && <div><span>Source File Noted in Report:</span> <code>{sourceFilename}</code></div>}
         </div>
+
+        <button
+          type="button"
+          className="btn-secondary btn-sm"
+          style={{ marginTop: '1.25rem' }}
+          onClick={() => loadPdfFromStorage(true)}
+        >
+          <span>🔄</span> Re-check Cloud Storage (Backblaze B2)
+        </button>
       </div>
     );
   }

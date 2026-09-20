@@ -23,6 +23,8 @@ export default function TeacherSubmissionsPage() {
   const [gridData, setGridData] = useState({ weeks: [], rows: [], totalStudents: 0 });
   const [gridLoading, setGridLoading] = useState(false);
   const [uploadingJson, setUploadingJson] = useState(false);
+  const [uploadTargetProvider, setUploadTargetProvider] = useState('gemini');
+  const [providerFilter, setProviderFilter] = useState('all'); // 'all' | 'gemini' | 'ollama'
   const [uploadAlert, setUploadAlert] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -49,11 +51,10 @@ export default function TeacherSubmissionsPage() {
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
 
-  // Load grid and student metadata on mount and when evaluations tab is active
+  // High-performance loading: only fetch the lightweight grid on evaluations tab
   useEffect(() => {
     if (activeTab === 'evaluations') {
       loadGrid();
-      loadStudentMetadata();
     }
   }, [activeTab]);
 
@@ -61,17 +62,59 @@ export default function TeacherSubmissionsPage() {
   useEffect(() => {
     if (activeTab === 'submissions') {
       fetchSubmissions();
+      loadStudentMetadata();
     }
   }, [activeTab, week, year, section]);
 
   // ----------------------------------------------------------------------------
   // Evaluation Data Handlers
   // ----------------------------------------------------------------------------
-  const loadGrid = async () => {
+  const loadGrid = async (forceRefresh = false) => {
     try {
-      setGridLoading(true);
-      const data = await evaluationService.getGrid();
+      // 1. SWR: Check if grid is already cached in memory for instant display
+      const hasCached = evaluationService.gridCache && evaluationService.gridCache.has();
+      if (hasCached && !forceRefresh) {
+        const cached = evaluationService.gridCache.get();
+        if (cached) {
+          setGridData(cached);
+          if (cached.rows) {
+            const meta = {};
+            cached.rows.forEach((r) => {
+              if (r.studentId) {
+                meta[r.studentId.toUpperCase()] = {
+                  name: r.studentName,
+                  profilePicture: r.profilePicture,
+                  year: r.year,
+                  section: r.section || r.sectionId,
+                };
+              }
+            });
+            setStudentMetaMap((prev) => ({ ...meta, ...prev }));
+          }
+        }
+      } else {
+        setGridLoading(true);
+      }
+
+      // 2. Fetch fresh grid data (in background if cache hit, or foreground if miss/forceRefresh)
+      const data = await evaluationService.getGrid(forceRefresh);
       setGridData(data);
+
+      // Fast synchronous metadata mapping directly from grid response
+      if (data && data.rows) {
+        const meta = {};
+        data.rows.forEach((r) => {
+          if (r.studentId) {
+            meta[r.studentId.toUpperCase()] = {
+              name: r.studentName,
+              profilePicture: r.profilePicture,
+              year: r.year,
+              section: r.section || r.sectionId,
+            };
+          }
+        });
+        setStudentMetaMap((prev) => ({ ...meta, ...prev }));
+      }
     } catch (err) {
       console.error('Failed to load evaluation grid:', err);
       setUploadAlert({ type: 'error', message: err.message || 'Failed to load evaluation grid.' });
@@ -130,7 +173,8 @@ export default function TeacherSubmissionsPage() {
     setStudentMetaMap(meta);
   };
 
-  const handleUploadButtonClick = () => {
+  const handleUploadButtonClick = (provider = 'gemini') => {
+    setUploadTargetProvider(provider);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
       fileInputRef.current.click();
@@ -146,15 +190,14 @@ export default function TeacherSubmissionsPage() {
       setUploadingJson(true);
       setUploadAlert(null);
 
-      const resp = await evaluationService.uploadJsonFile(file);
+      const resp = await evaluationService.uploadJsonFile(file, uploadTargetProvider);
       setUploadAlert({
         type: 'success',
-        message: `${resp.message || 'JSON processed successfully!'} Processed ${resp.processedCount} student evaluations for ${resp.weeks?.join(', ') || 'selected weeks'}.`,
+        message: `${resp.message || 'JSON processed successfully!'} Processed ${resp.processedCount} ${uploadTargetProvider.toUpperCase()} evaluations for ${resp.weeks?.join(', ') || 'selected weeks'}.`,
       });
 
       // Reload grid immediately to reflect new/updated evaluations
-      await loadGrid();
-      await loadStudentMetadata();
+      await loadGrid(true);
     } catch (err) {
       setUploadAlert({
         type: 'error',
@@ -229,7 +272,7 @@ export default function TeacherSubmissionsPage() {
         type: 'success',
         message: `Successfully deleted ${week} evaluation report for ${studentId}.`,
       });
-      await loadGrid();
+      await loadGrid(true);
     } catch (err) {
       console.error('Failed to delete report:', err);
       setUploadAlert({
@@ -385,6 +428,7 @@ export default function TeacherSubmissionsPage() {
           <TeacherReportView
             studentId={selectedReport.studentId}
             week={selectedReport.week}
+            initialProvider={selectedReport.provider}
             onBack={() => setSelectedReport(null)}
             onFeedbackUpdated={handleFeedbackUpdated}
             onReportDeleted={handleReportDeletedFromView}
@@ -399,7 +443,7 @@ export default function TeacherSubmissionsPage() {
       <Navbar />
 
       <main className="portal-container teacher-eval-page">
-        {/* Top Header matching reference image: Title, Subtitle, Semester Selector */}
+        {/* Top Header matching reference image: Title, Subtitle, Semester Selector & Model Actions */}
         <div
           style={{
             display: 'flex',
@@ -415,26 +459,61 @@ export default function TeacherSubmissionsPage() {
               Teacher Dashboard
             </h1>
             <p style={{ fontSize: '0.9rem', color: '#64748b', margin: '0.35rem 0 0', maxWidth: '750px' }}>
-              Review automated laboratory evaluations, monitor section scores, inspect detailed student reports, and save human teacher feedback.
+              Review automated laboratory evaluations (Gemini & Ollama), monitor section scores, inspect detailed student reports, and save human teacher feedback.
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
             <div className="semester-selector-card" title="Active academic cycle">
               <span>📅</span>
               <span>{semester}</span>
               <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>▾</span>
             </div>
 
+            {/* AI Model Table View Filter */}
+            <div className="provider-filter-chips" title="Switch table display between AI models">
+              <button
+                type="button"
+                className={`btn-provider-chip ${providerFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setProviderFilter('all')}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`btn-provider-chip gemini ${providerFilter === 'gemini' ? 'active' : ''}`}
+                onClick={() => setProviderFilter('gemini')}
+              >
+                ✨ Gemini
+              </button>
+              <button
+                type="button"
+                className={`btn-provider-chip ollama ${providerFilter === 'ollama' ? 'active' : ''}`}
+                onClick={() => setProviderFilter('ollama')}
+              >
+                🦙 Ollama
+              </button>
+            </div>
+
+            {/* Distinct Upload Buttons */}
             <button
               type="button"
-              className="btn-primary"
-              onClick={handleUploadButtonClick}
+              className="btn-upload-gemini"
+              onClick={() => handleUploadButtonClick('gemini')}
               disabled={uploadingJson}
-              title="Upload evaluation JSON report"
-              style={{ padding: '0.5rem 1.15rem', fontSize: '0.85rem', borderRadius: '8px' }}
+              title="Upload Google Gemini AI evaluation JSON report"
             >
-              {uploadingJson ? '⏳ Uploading...' : '📤 Upload JSON'}
+              {uploadingJson && uploadTargetProvider === 'gemini' ? '⏳ Uploading...' : '✨ Upload Gemini JSON'}
+            </button>
+
+            <button
+              type="button"
+              className="btn-upload-ollama"
+              onClick={() => handleUploadButtonClick('ollama')}
+              disabled={uploadingJson}
+              title="Upload Ollama (local model) evaluation JSON report"
+            >
+              {uploadingJson && uploadTargetProvider === 'ollama' ? '⏳ Uploading...' : '🦙 Upload Ollama JSON'}
             </button>
           </div>
         </div>
@@ -540,6 +619,7 @@ export default function TeacherSubmissionsPage() {
                 studentMetaMap={studentMetaMap}
                 onViewReport={setSelectedReport}
                 onDeleteReport={handleDeleteReport}
+                providerFilter={providerFilter}
               />
             )}
           </div>
