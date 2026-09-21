@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import AdminStatCard from '../components/admin/AdminStatCard';
 import RoleBadge from '../components/admin/RoleBadge';
@@ -7,11 +7,12 @@ import UserActionsMenu from '../components/admin/UserActionsMenu';
 import Pagination from '../components/admin/Pagination';
 import { adminService } from '../services/adminService';
 import { authService } from '../services/authService';
+import { evaluationService } from '../services/evaluationService';
 import { extractStudentIdFromEmail } from '../utils/studentDataHelper';
 import '../styles/portal.css';
 
 export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions'
+  const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions' | 'evaluations'
   const [stats, setStats] = useState({
     totalUsers: 0,
     studentCount: 0,
@@ -46,6 +47,11 @@ export default function AdminDashboardPage() {
   const [subSection, setSubSection] = useState('');
   const [subStudentId, setSubStudentId] = useState('');
   const [subLoading, setSubLoading] = useState(false);
+
+  // Evaluation JSON Upload State (Admin Only)
+  const [uploadingJson, setUploadingJson] = useState(false);
+  const [uploadTargetProvider, setUploadTargetProvider] = useState('gemini');
+  const fileInputRef = useRef(null);
 
   // Action Feedback
   const [bannerMsg, setBannerMsg] = useState(null);
@@ -181,6 +187,36 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleUploadButtonClick = (provider = 'gemini') => {
+    setUploadTargetProvider(provider);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleJsonFileSelected = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    try {
+      setUploadingJson(true);
+      setBannerMsg(null);
+      setBannerErr(null);
+
+      const resp = await evaluationService.uploadJsonFile(file, uploadTargetProvider);
+      setBannerMsg(
+        `${resp.message || 'JSON processed successfully!'} Processed ${resp.processedCount} ${uploadTargetProvider.toUpperCase()} evaluations for ${resp.weeks?.join(', ') || 'selected weeks'}.`
+      );
+      loadStats();
+    } catch (err) {
+      setBannerErr(err.message || 'Failed to upload and parse JSON file.');
+    } finally {
+      setUploadingJson(false);
+    }
+  };
+
   return (
     <div className="portal-layout">
       <Navbar />
@@ -206,25 +242,61 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <div>
+          <div className="admin-header-toolbar">
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn-admin-add-user"
               onClick={() => setShowAddUserModal(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.65rem 1.35rem',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                borderRadius: '8px',
-              }}
+              id="admin-btn-add-user"
+              title="Provision a new user account"
             >
-              <span>+</span> Add New User
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Add New User</span>
+            </button>
+            <button
+              type="button"
+              className="btn-upload-gemini"
+              onClick={() => handleUploadButtonClick('gemini')}
+              disabled={uploadingJson}
+              id="admin-btn-upload-gemini"
+              title="Upload Google Gemini AI evaluation JSON report"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <span>{uploadingJson && uploadTargetProvider === 'gemini' ? 'Uploading...' : 'Upload Gemini JSON'}</span>
+            </button>
+            <button
+              type="button"
+              className="btn-upload-ollama"
+              onClick={() => handleUploadButtonClick('ollama')}
+              disabled={uploadingJson}
+              id="admin-btn-upload-ollama"
+              title="Upload Ollama (local model) evaluation JSON report"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <span>{uploadingJson && uploadTargetProvider === 'ollama' ? 'Uploading...' : 'Upload Ollama JSON'}</span>
             </button>
           </div>
         </div>
+
+        {/* Global Hidden File Input for Header & Tab Upload Actions */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept=".json,application/json"
+          style={{ display: 'none' }}
+          onChange={handleJsonFileSelected}
+        />
 
         {/* Global Feedback Banners */}
         {bannerMsg && (
@@ -666,112 +738,134 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* Add User Modal (Modernized) */}
+        {/* Add User Modal (Modernized & Formatted) */}
         {showAddUserModal && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(15, 23, 42, 0.65)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            <div
-              className="admin-card-container"
-              style={{ width: '100%', maxWidth: '480px', margin: '1rem', padding: '1.75rem' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>Provision New User</h2>
+          <div className="admin-modal-overlay" onClick={() => setShowAddUserModal(false)}>
+            <div className="admin-modal-card" onClick={(e) => e.stopPropagation()}>
+              <div className="admin-modal-header">
+                <div className="admin-modal-header-info">
+                  <div className="admin-modal-icon-badge">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="8.5" cy="7" r="4"></circle>
+                      <line x1="20" y1="8" x2="20" y2="14"></line>
+                      <line x1="23" y1="11" x2="17" y2="11"></line>
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="admin-modal-title">Provision New User</h2>
+                    <p className="admin-modal-subtitle">Register a new student, faculty evaluator, or system administrator.</p>
+                  </div>
+                </div>
                 <button
                   type="button"
+                  className="admin-modal-close-btn"
                   onClick={() => setShowAddUserModal(false)}
-                  style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: '#64748b', cursor: 'pointer' }}
+                  title="Close dialog"
                 >
-                  ×
+                  &times;
                 </button>
               </div>
 
               {addUserError && (
-                <div className="alert-message error" style={{ marginBottom: '1.25rem' }}>
+                <div className="alert-message error" style={{ margin: '1rem 1.5rem 0' }}>
                   <span>⚠️</span>
                   <span>{addUserError}</span>
                 </div>
               )}
 
               <form onSubmit={handleCreateUser}>
-                <div className="form-group" style={{ marginBottom: '1rem' }}>
-                  <label className="filter-label" htmlFor="new-user-name">Full Name</label>
-                  <input
-                    id="new-user-name"
-                    type="text"
-                    className="filter-search-input"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. Jane Doe"
-                    required
-                  />
+                <div className="admin-modal-body">
+                  <div className="admin-modal-field">
+                    <label className="admin-modal-label" htmlFor="new-user-name">
+                      Full Name <span className="required-star">*</span>
+                    </label>
+                    <input
+                      id="new-user-name"
+                      type="text"
+                      className="admin-modal-input"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="e.g. Jane Doe"
+                      required
+                    />
+                  </div>
+
+                  <div className="admin-modal-field">
+                    <label className="admin-modal-label" htmlFor="new-user-email">
+                      Institutional Email <span className="required-star">*</span>
+                    </label>
+                    <input
+                      id="new-user-email"
+                      type="email"
+                      className="admin-modal-input"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="e.g. user@rguktn.ac.in"
+                      required
+                    />
+                  </div>
+
+                  <div className="admin-modal-field">
+                    <label className="admin-modal-label" htmlFor="new-user-password">
+                      Initial Password <span className="required-star">*</span>
+                    </label>
+                    <input
+                      id="new-user-password"
+                      type="password"
+                      className="admin-modal-input"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      minLength={8}
+                      required
+                    />
+                    <div className="admin-modal-helper">Minimum 8 characters. Users can change this in their Profile settings.</div>
+                  </div>
+
+                  <div className="admin-modal-field" style={{ marginBottom: 0 }}>
+                    <label className="admin-modal-label" htmlFor="new-user-role">
+                      System Role <span className="required-star">*</span>
+                    </label>
+                    <select
+                      id="new-user-role"
+                      className="admin-modal-select"
+                      value={newRole}
+                      onChange={(e) => setNewRole(e.target.value)}
+                    >
+                      <option value="STUDENT">STUDENT — Lab Learner & Submissions</option>
+                      <option value="TEACHER">TEACHER — Faculty & Rubric Evaluator</option>
+                      <option value="ADMIN">ADMIN — Institutional System Controller</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="form-group" style={{ marginBottom: '1rem' }}>
-                  <label className="filter-label" htmlFor="new-user-email">Institutional Email</label>
-                  <input
-                    id="new-user-email"
-                    type="email"
-                    className="filter-search-input"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="e.g. user@rguktn.ac.in"
-                    required
-                  />
-                </div>
-
-                <div className="form-group" style={{ marginBottom: '1rem' }}>
-                  <label className="filter-label" htmlFor="new-user-password">Initial Password</label>
-                  <input
-                    id="new-user-password"
-                    type="password"
-                    className="filter-search-input"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Min 8 characters"
-                    required
-                  />
-                </div>
-
-                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                  <label className="filter-label" htmlFor="new-user-role">System Role</label>
-                  <select
-                    id="new-user-role"
-                    className="filter-select"
-                    value={newRole}
-                    onChange={(e) => setNewRole(e.target.value)}
-                  >
-                    <option value="STUDENT">STUDENT</option>
-                    <option value="TEACHER">TEACHER</option>
-                    <option value="ADMIN">ADMIN</option>
-                  </select>
-                </div>
-
-                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                <div className="admin-modal-footer">
                   <button
                     type="button"
-                    className="btn btn-secondary"
+                    className="admin-modal-btn-cancel"
                     onClick={() => setShowAddUserModal(false)}
-                    style={{ padding: '0.65rem 1.25rem' }}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="btn btn-primary"
+                    className="admin-modal-btn-submit"
                     disabled={addUserLoading}
-                    style={{ padding: '0.65rem 1.5rem' }}
                   >
-                    {addUserLoading ? 'Creating...' : 'Create Account'}
+                    {addUserLoading ? (
+                      <>
+                        <span>⏳</span>
+                        <span>Provisioning...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span>Create Account</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </form>

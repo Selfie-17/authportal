@@ -1,9 +1,10 @@
 import React from 'react';
+import { renderMathNodes, renderKatexToString, normalizeSpecialCharacters } from '../../utils/mathRenderer';
 
 /**
- * Lightweight, dependency-free Markdown renderer for evaluation reports.
- * Renders headings, markdown tables, code blocks, lists, and formatted text
- * without requiring external heavy markdown packages.
+ * Lightweight Markdown renderer for evaluation reports.
+ * Supports headings, markdown tables, code blocks, lists, formatted text,
+ * and mathematical formulas ($ 3 \times 3 $, $$...$$) via KaTeX.
  */
 export default function MarkdownReportRenderer({ content }) {
   if (!content) {
@@ -18,7 +19,28 @@ export default function MarkdownReportRenderer({ content }) {
   while (i < lines.length) {
     const line = lines[i];
 
-    // 1. Markdown Table detection
+    // 1. Display math block $$...$$
+    if (line.trim().startsWith('$$')) {
+      if (line.trim().endsWith('$$') && line.trim().length > 2) {
+        blocks.push({ type: 'math', formula: line.trim().slice(2, -2) });
+        i++;
+        continue;
+      }
+      const mathLines = [line.replace(/^\$\$/, '')];
+      i++;
+      while (i < lines.length && !lines[i].includes('$$')) {
+        mathLines.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) {
+        mathLines.push(lines[i].replace(/\$\$.*$/, ''));
+        i++;
+      }
+      blocks.push({ type: 'math', formula: mathLines.join('\n') });
+      continue;
+    }
+
+    // 2. Markdown Table detection
     if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
       const tableLines = [];
       while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
@@ -29,7 +51,7 @@ export default function MarkdownReportRenderer({ content }) {
       continue;
     }
 
-    // 2. Headings
+    // 3. Headings
     if (line.startsWith('# ')) {
       blocks.push({ type: 'h1', text: line.replace(/^#\s+/, '') });
     } else if (line.startsWith('## ')) {
@@ -39,7 +61,7 @@ export default function MarkdownReportRenderer({ content }) {
     } else if (line.startsWith('#### ')) {
       blocks.push({ type: 'h4', text: line.replace(/^####\s+/, '') });
     }
-    // 3. Bullet points
+    // 4. Bullet points
     else if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
       const listItems = [];
       while (i < lines.length && (lines[i].trim().startsWith('- ') || lines[i].trim().startsWith('* '))) {
@@ -49,7 +71,7 @@ export default function MarkdownReportRenderer({ content }) {
       blocks.push({ type: 'ul', items: listItems });
       continue;
     }
-    // 4. Numbered list
+    // 5. Numbered list
     else if (/^\d+\.\s+/.test(line.trim())) {
       const numItems = [];
       while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
@@ -59,11 +81,11 @@ export default function MarkdownReportRenderer({ content }) {
       blocks.push({ type: 'ol', items: numItems });
       continue;
     }
-    // 5. Horizontal rule
+    // 6. Horizontal rule
     else if (/^---+$/.test(line.trim())) {
       blocks.push({ type: 'hr' });
     }
-    // 6. Regular paragraph (if not empty)
+    // 7. Regular paragraph (if not empty)
     else if (line.trim().length > 0) {
       blocks.push({ type: 'p', text: line.trim() });
     }
@@ -71,16 +93,32 @@ export default function MarkdownReportRenderer({ content }) {
     i++;
   }
 
-  // Inline formatting helper: **bold**, `code`, *italic*
+  // Inline formatting helper: **bold**, `code`, *italic*, $math$
   const formatInline = (text) => {
     if (!text) return null;
 
+    const normalized = normalizeSpecialCharacters(text);
+
     // Split by markdown delimiters
     const tokens = [];
-    let remaining = text;
+    let remaining = normalized;
     let key = 0;
 
     while (remaining.length > 0) {
+      // Inline math $...$
+      const mathMatch = remaining.match(/^\$([^\$\n\r]+?)\$/);
+      if (mathMatch) {
+        tokens.push(
+          <span
+            key={key++}
+            className="math-inline-wrap"
+            dangerouslySetInnerHTML={{ __html: renderKatexToString(mathMatch[1], false) }}
+          />
+        );
+        remaining = remaining.substring(mathMatch[0].length);
+        continue;
+      }
+
       // Code span `...`
       const codeMatch = remaining.match(/^`([^`]+)`/);
       if (codeMatch) {
@@ -92,7 +130,7 @@ export default function MarkdownReportRenderer({ content }) {
       // Bold **...**
       const boldMatch = remaining.match(/^\*\*([^*]+)\*\*/);
       if (boldMatch) {
-        tokens.push(<strong key={key++}>{boldMatch[1]}</strong>);
+        tokens.push(<strong key={key++}>{formatInline(boldMatch[1])}</strong>);
         remaining = remaining.substring(boldMatch[0].length);
         continue;
       }
@@ -100,22 +138,22 @@ export default function MarkdownReportRenderer({ content }) {
       // Italic *...*
       const italicMatch = remaining.match(/^\*([^*]+)\*/);
       if (italicMatch) {
-        tokens.push(<em key={key++}>{italicMatch[1]}</em>);
+        tokens.push(<em key={key++}>{formatInline(italicMatch[1])}</em>);
         remaining = remaining.substring(italicMatch[0].length);
         continue;
       }
 
       // Plain text up to next special char
-      const nextSpecial = remaining.search(/[`*]/);
+      const nextSpecial = remaining.search(/[`*$]/);
       if (nextSpecial === -1) {
-        tokens.push(remaining);
+        tokens.push(renderMathNodes(remaining));
         break;
       } else if (nextSpecial === 0) {
         // Stray character
         tokens.push(remaining[0]);
         remaining = remaining.substring(1);
       } else {
-        tokens.push(remaining.substring(0, nextSpecial));
+        tokens.push(renderMathNodes(remaining.substring(0, nextSpecial)));
         remaining = remaining.substring(nextSpecial);
       }
     }
@@ -193,6 +231,14 @@ export default function MarkdownReportRenderer({ content }) {
             );
           case 'hr':
             return <hr key={idx} className="md-divider" />;
+          case 'math':
+            return (
+              <div
+                key={idx}
+                className="math-display-wrap"
+                dangerouslySetInnerHTML={{ __html: renderKatexToString(block.formula, true) }}
+              />
+            );
           case 'p':
           default:
             return <p key={idx} className="md-paragraph">{formatInline(block.text)}</p>;

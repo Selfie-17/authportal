@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "katex": "^0.18.7",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

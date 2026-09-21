@@ -53,16 +53,19 @@ public class AuthService {
         // 3. Hash password
         String hashedPassword = passwordEncoder.encode(request.getPassword());
 
-        // 4. Create and persist user entity
-        User user = User.builder()
+        User.UserBuilder userBuilder = User.builder()
                 .name(request.getName().trim())
                 .email(normalizedEmail)
                 .password(hashedPassword)
                 .role(assignedRole)
                 .authProvider(AuthProvider.LOCAL)
-                .enabled(true)
-                .build();
+                .enabled(true);
 
+        if (assignedRole == Role.STUDENT) {
+            userBuilder.branch("CSE");
+        }
+
+        User user = userBuilder.build();
         User savedUser = userRepository.save(user);
         log.info("Successfully registered local user with email: {} and role: {}", normalizedEmail, assignedRole);
 

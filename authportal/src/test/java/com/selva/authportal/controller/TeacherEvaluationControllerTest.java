@@ -80,7 +80,7 @@ class TeacherEvaluationControllerTest {
                 "file", "eval.json", "application/json", "{}".getBytes()
         );
 
-        when(evaluationService.processJsonUpload(any())).thenReturn(
+        when(evaluationService.processJsonUpload(any(), any())).thenReturn(
                 EvaluationUploadResponse.builder()
                         .success(true)
                         .processedCount(5)
@@ -141,7 +141,7 @@ class TeacherEvaluationControllerTest {
                 .feedbackText("Well done")
                 .build();
 
-        when(evaluationService.getStudentReport(eq("N210921"), eq("Week 1"))).thenReturn(report);
+        when(evaluationService.getStudentReport(eq("N210921"), eq("Week 1"), any())).thenReturn(report);
 
         mockMvc.perform(get("/api/teacher/evaluations/report")
                         .param("studentId", "N210921")

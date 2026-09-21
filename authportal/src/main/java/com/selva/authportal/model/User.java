@@ -47,6 +47,15 @@ public class User {
     @Column(nullable = false, length = 50)
     private Role role;
 
+    @Column(name = "branch", length = 50)
+    private String branch;
+
+    @Column(name = "academic_year", length = 50)
+    private String academicYear;
+
+    @Column(name = "section", length = 50)
+    private String section;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "auth_provider", nullable = false, length = 50)
     private AuthProvider authProvider;

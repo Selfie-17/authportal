@@ -52,6 +52,15 @@ public class ProfileService {
         if (request.getProfilePicture() != null) {
             existing.setProfilePicture(request.getProfilePicture().trim());
         }
+        if (request.getBranch() != null) {
+            existing.setBranch(request.getBranch().trim());
+        }
+        if (request.getAcademicYear() != null) {
+            existing.setAcademicYear(request.getAcademicYear().trim());
+        }
+        if (request.getSection() != null) {
+            existing.setSection(request.getSection().trim());
+        }
 
         User saved = userRepository.save(existing);
         log.info("Profile updated for user: {}", saved.getEmail());

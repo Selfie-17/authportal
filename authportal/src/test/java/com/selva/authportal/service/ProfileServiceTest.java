@@ -64,11 +64,14 @@ class ProfileServiceTest {
     }
 
     @Test
-    @DisplayName("Should update user profile name and avatar")
+    @DisplayName("Should update user profile name, avatar, branch, academicYear, and section")
     void shouldUpdateProfile() {
         UpdateProfileRequest request = UpdateProfileRequest.builder()
                 .name("Updated Name")
                 .profilePicture("https://example.com/avatar.png")
+                .branch("CSE")
+                .academicYear("E1")
+                .section("Section 1")
                 .build();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(localUser));
@@ -78,6 +81,9 @@ class ProfileServiceTest {
 
         assertThat(response.getName()).isEqualTo("Updated Name");
         assertThat(response.getProfilePicture()).isEqualTo("https://example.com/avatar.png");
+        assertThat(response.getBranch()).isEqualTo("CSE");
+        assertThat(response.getAcademicYear()).isEqualTo("E1");
+        assertThat(response.getSection()).isEqualTo("Section 1");
     }
 
     @Test

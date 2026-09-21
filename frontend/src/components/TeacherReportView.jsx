@@ -3,6 +3,7 @@ import { evaluationService } from '../services/evaluationService';
 import ExtractedTextViewer from './teacher/ExtractedTextViewer';
 import UploadedPdfViewer from './teacher/UploadedPdfViewer';
 import MarkdownReportRenderer from './teacher/MarkdownReportRenderer';
+import MathText from '../utils/mathRenderer';
 
 /**
  * Single Student Teacher Report Component.
@@ -629,7 +630,7 @@ export default function TeacherReportView({
           {/* Model Tag Badge */}
           {report.provider && (
             <span className={`provider-model-badge ${report.provider}`}>
-              {report.provider === 'gemini' ? '✨ Gemini' : '🦙 Ollama'}
+              {report.provider === 'gemini' ? 'Gemini' : 'Ollama'}
               {report.modelName ? ` • ${report.modelName}` : ''}
             </span>
           )}
@@ -702,7 +703,7 @@ export default function TeacherReportView({
                     disabled={loading || switchingProvider}
                     title={`View ${isGemini ? 'Gemini' : isOllama ? 'Ollama' : prov} evaluation report`}
                   >
-                    <span>{isGemini ? '✨ Gemini' : isOllama ? '🦙 Ollama' : prov}</span>
+                    <span>{isGemini ? 'Gemini' : isOllama ? 'Ollama' : prov}</span>
                   </button>
                 );
               })}
@@ -715,9 +716,6 @@ export default function TeacherReportView({
       {activeTab === 'side-by-side' && (
         <div className="report-side-by-side-layout">
           <div className="side-by-side-column ocr-column">
-            <div className="side-by-side-col-header">
-              <span className="side-col-title">📝 Extracted OCR Text</span>
-            </div>
             <ExtractedTextViewer
               studentId={report.studentId}
               week={report.week}
@@ -725,9 +723,6 @@ export default function TeacherReportView({
             />
           </div>
           <div className="side-by-side-column pdf-column">
-            <div className="side-by-side-col-header">
-              <span className="side-col-title">📄 Student Uploaded PDF</span>
-            </div>
             <UploadedPdfViewer
               studentId={report.studentId}
               week={report.week}
@@ -812,7 +807,7 @@ export default function TeacherReportView({
             <div className="report-assessment-box">
               <span className="assessment-label">Overall Assessment</span>
               <p className="assessment-text">
-                {report.assessment || 'Unified evaluation completed.'}
+                <MathText text={report.assessment || 'Unified evaluation completed.'} />
               </p>
             </div>
           </div>
@@ -1076,7 +1071,7 @@ export default function TeacherReportView({
                   <h4>💪 Key Strengths</h4>
                   <ul>
                     {report.strengths.map((str, idx) => (
-                      <li key={idx}>{str}</li>
+                      <li key={idx}><MathText text={str} /></li>
                     ))}
                   </ul>
                 </div>
@@ -1087,7 +1082,7 @@ export default function TeacherReportView({
                   <h4>🎯 Recommendations & Improvements</h4>
                   <ul>
                     {report.recommendations.map((rec, idx) => (
-                      <li key={idx}>{rec}</li>
+                      <li key={idx}><MathText text={rec} /></li>
                     ))}
                   </ul>
                 </div>
@@ -1110,7 +1105,7 @@ export default function TeacherReportView({
                       </span>
                     </div>
                     {dVal.justification && (
-                      <p className="criterion-justification">{dVal.justification}</p>
+                      <p className="criterion-justification"><MathText text={dVal.justification} /></p>
                     )}
                   </div>
                 ))}
@@ -1146,14 +1141,14 @@ export default function TeacherReportView({
                         {prog.problem_understanding && (
                           <div className="program-field">
                             <strong>Problem Understanding:</strong>
-                            <p>{prog.problem_understanding}</p>
+                            <p><MathText text={prog.problem_understanding} /></p>
                           </div>
                         )}
 
                         {prog.logic_approach && (
                           <div className="program-field">
                             <strong>Logic / Approach Used:</strong>
-                            <p>{prog.logic_approach}</p>
+                            <p><MathText text={prog.logic_approach} /></p>
                           </div>
                         )}
 
@@ -1172,7 +1167,7 @@ export default function TeacherReportView({
                                   {prog.important_variables.map((v, idx) => (
                                     <tr key={idx}>
                                       <td><code>{v.variable}</code></td>
-                                      <td>{v.purpose}</td>
+                                      <td><MathText text={v.purpose} /></td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -1184,7 +1179,7 @@ export default function TeacherReportView({
                         {prog.what_i_observed && (
                           <div className="program-field">
                             <strong>What I Observed:</strong>
-                            <p>{prog.what_i_observed}</p>
+                            <p><MathText text={prog.what_i_observed} /></p>
                           </div>
                         )}
                       </div>

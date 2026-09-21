@@ -116,15 +116,20 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 );
             }
 
-            user = User.builder()
+            User.UserBuilder userBuilder = User.builder()
                     .email(normalizedEmail)
                     .name(name)
                     .googleId(googleId)
                     .profilePicture(picture)
                     .role(role)
                     .authProvider(AuthProvider.GOOGLE)
-                    .enabled(true)
-                    .build();
+                    .enabled(true);
+
+            if (role == Role.STUDENT) {
+                userBuilder.branch("CSE");
+            }
+
+            user = userBuilder.build();
 
             user = userRepository.save(user);
             log.info("New user provisioned via Google OAuth: {}, role: {}", normalizedEmail, role);

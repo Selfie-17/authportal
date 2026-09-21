@@ -32,7 +32,7 @@ export default function ExpandedWeekReport({
   // Compute lab date range subtext
   const weekNumMatch = weekName.match(/\d+/);
   const weekNum = weekNumMatch ? parseInt(weekNumMatch[0], 10) : 1;
-  const dateSubtext = `Week ${weekNum} Evaluation Cycle • 2025`;
+  const dateSubtext = `Week ${weekNum} Evaluation Cycle`;
 
   return (
     <div className="expanded-week-card">
@@ -52,7 +52,6 @@ export default function ExpandedWeekReport({
           {/* Multi-provider score pills */}
           {hasGemini && (
             <div className="expanded-score-pill gemini-pill" title="Gemini 2.5 Flash Evaluation Score">
-              <span className="provider-icon">✨</span>
               <span>Gemini:</span>
               <strong>{geminiScore || formattedScore}</strong>
             </div>
@@ -60,7 +59,6 @@ export default function ExpandedWeekReport({
 
           {hasOllama && (
             <div className="expanded-score-pill ollama-pill" title="Ollama (Qwen2.5 Coder) Evaluation Score">
-              <span className="provider-icon">🦙</span>
               <span>Ollama:</span>
               <strong>{ollamaScore || formattedScore}</strong>
             </div>

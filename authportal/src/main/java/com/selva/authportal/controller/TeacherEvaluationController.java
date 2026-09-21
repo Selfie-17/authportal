@@ -33,8 +33,10 @@ public class TeacherEvaluationController {
 
     /**
      * Uploads and processes an evaluation JSON file (multipart/form-data) with optional provider.
+     * Restricted strictly to administrators.
      */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<EvaluationUploadResponse> uploadEvaluationFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "provider", required = false) String provider
@@ -45,8 +47,10 @@ public class TeacherEvaluationController {
 
     /**
      * Directly posts an evaluation JSON string (application/json) with optional provider.
+     * Restricted strictly to administrators.
      */
     @PostMapping(value = "/upload-json", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<EvaluationUploadResponse> uploadEvaluationJson(
             @RequestBody String jsonContent,
             @RequestParam(value = "provider", required = false) String provider

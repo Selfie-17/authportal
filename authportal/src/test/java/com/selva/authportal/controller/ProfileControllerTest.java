@@ -112,6 +112,9 @@ class ProfileControllerTest {
         UpdateProfileRequest request = UpdateProfileRequest.builder()
                 .name("New Name")
                 .profilePicture("https://example.com/pic.jpg")
+                .branch("CSE")
+                .academicYear("E1")
+                .section("Section 1")
                 .build();
 
         UserResponse response = UserResponse.builder()
@@ -119,6 +122,9 @@ class ProfileControllerTest {
                 .name("New Name")
                 .email("n210001@rguktn.ac.in")
                 .profilePicture("https://example.com/pic.jpg")
+                .branch("CSE")
+                .academicYear("E1")
+                .section("Section 1")
                 .role(Role.STUDENT)
                 .build();
 
@@ -128,7 +134,10 @@ class ProfileControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("New Name"));
+                .andExpect(jsonPath("$.name").value("New Name"))
+                .andExpect(jsonPath("$.branch").value("CSE"))
+                .andExpect(jsonPath("$.academicYear").value("E1"))
+                .andExpect(jsonPath("$.section").value("Section 1"));
     }
 
     @Test

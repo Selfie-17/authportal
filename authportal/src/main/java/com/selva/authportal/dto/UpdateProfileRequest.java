@@ -19,4 +19,10 @@ public class UpdateProfileRequest {
     private String name;
 
     private String profilePicture;
+
+    private String branch;
+
+    private String academicYear;
+
+    private String section;
 }

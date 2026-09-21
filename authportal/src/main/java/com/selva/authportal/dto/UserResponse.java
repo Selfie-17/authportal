@@ -24,6 +24,9 @@ public class UserResponse {
     private String name;
     private String email;
     private Role role;
+    private String branch;
+    private String academicYear;
+    private String section;
     private AuthProvider authProvider;
     private String profilePicture;
     private boolean enabled;
@@ -38,6 +41,9 @@ public class UserResponse {
                 .name(user.getName())
                 .email(user.getEmail())
                 .role(user.getRole())
+                .branch(user.getBranch())
+                .academicYear(user.getAcademicYear())
+                .section(user.getSection())
                 .authProvider(user.getAuthProvider())
                 .profilePicture(user.getProfilePicture())
                 .enabled(user.isEnabled())

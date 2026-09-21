@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Navbar from '../components/Navbar';
 import TeacherReportView from '../components/TeacherReportView';
 import TeacherStats from '../components/teacher/TeacherStats';
@@ -22,11 +22,8 @@ export default function TeacherSubmissionsPage() {
   // ==============================================================================
   const [gridData, setGridData] = useState({ weeks: [], rows: [], totalStudents: 0 });
   const [gridLoading, setGridLoading] = useState(false);
-  const [uploadingJson, setUploadingJson] = useState(false);
-  const [uploadTargetProvider, setUploadTargetProvider] = useState('gemini');
   const [providerFilter, setProviderFilter] = useState('all'); // 'all' | 'gemini' | 'ollama'
-  const [uploadAlert, setUploadAlert] = useState(null);
-  const fileInputRef = useRef(null);
+  const [pageAlert, setPageAlert] = useState(null);
 
   // Student metadata lookup cache (studentId -> { name, year, section, email })
   const [studentMetaMap, setStudentMetaMap] = useState({});
@@ -35,9 +32,6 @@ export default function TeacherSubmissionsPage() {
   const [filterEngineering, setFilterEngineering] = useState('ALL');
   const [filterSection, setFilterSection] = useState('ALL');
   const [filterSearch, setFilterSearch] = useState('');
-
-  // Selected semester filter in header
-  const [semester] = useState('Semester 1 • 2025');
 
   // ==============================================================================
   // File Submissions & Batch ZIP State (Preserved)
@@ -117,7 +111,7 @@ export default function TeacherSubmissionsPage() {
       }
     } catch (err) {
       console.error('Failed to load evaluation grid:', err);
-      setUploadAlert({ type: 'error', message: err.message || 'Failed to load evaluation grid.' });
+      setPageAlert({ type: 'error', message: err.message || 'Failed to load evaluation grid.' });
     } finally {
       setGridLoading(false);
     }
@@ -171,41 +165,6 @@ export default function TeacherSubmissionsPage() {
     }
 
     setStudentMetaMap(meta);
-  };
-
-  const handleUploadButtonClick = (provider = 'gemini') => {
-    setUploadTargetProvider(provider);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleJsonFileSelected = async (e) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0];
-    try {
-      setUploadingJson(true);
-      setUploadAlert(null);
-
-      const resp = await evaluationService.uploadJsonFile(file, uploadTargetProvider);
-      setUploadAlert({
-        type: 'success',
-        message: `${resp.message || 'JSON processed successfully!'} Processed ${resp.processedCount} ${uploadTargetProvider.toUpperCase()} evaluations for ${resp.weeks?.join(', ') || 'selected weeks'}.`,
-      });
-
-      // Reload grid immediately to reflect new/updated evaluations
-      await loadGrid(true);
-    } catch (err) {
-      setUploadAlert({
-        type: 'error',
-        message: err.message || 'Failed to upload and parse JSON file.',
-      });
-    } finally {
-      setUploadingJson(false);
-    }
   };
 
   const handleFeedbackUpdated = (sId, w, reviewed, text, scoreInfo) => {
@@ -443,7 +402,7 @@ export default function TeacherSubmissionsPage() {
       <Navbar />
 
       <main className="portal-container teacher-eval-page">
-        {/* Top Header matching reference image: Title, Subtitle, Semester Selector & Model Actions */}
+        {/* Top Header: Title, Subtitle & Model View Actions */}
         <div
           style={{
             display: 'flex',
@@ -464,12 +423,6 @@ export default function TeacherSubmissionsPage() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-            <div className="semester-selector-card" title="Active academic cycle">
-              <span>📅</span>
-              <span>{semester}</span>
-              <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>▾</span>
-            </div>
-
             {/* AI Model Table View Filter */}
             <div className="provider-filter-chips" title="Switch table display between AI models">
               <button
@@ -484,57 +437,27 @@ export default function TeacherSubmissionsPage() {
                 className={`btn-provider-chip gemini ${providerFilter === 'gemini' ? 'active' : ''}`}
                 onClick={() => setProviderFilter('gemini')}
               >
-                ✨ Gemini
+                Gemini
               </button>
               <button
                 type="button"
                 className={`btn-provider-chip ollama ${providerFilter === 'ollama' ? 'active' : ''}`}
                 onClick={() => setProviderFilter('ollama')}
               >
-                🦙 Ollama
+                Ollama
               </button>
             </div>
-
-            {/* Distinct Upload Buttons */}
-            <button
-              type="button"
-              className="btn-upload-gemini"
-              onClick={() => handleUploadButtonClick('gemini')}
-              disabled={uploadingJson}
-              title="Upload Google Gemini AI evaluation JSON report"
-            >
-              {uploadingJson && uploadTargetProvider === 'gemini' ? '⏳ Uploading...' : '✨ Upload Gemini JSON'}
-            </button>
-
-            <button
-              type="button"
-              className="btn-upload-ollama"
-              onClick={() => handleUploadButtonClick('ollama')}
-              disabled={uploadingJson}
-              title="Upload Ollama (local model) evaluation JSON report"
-            >
-              {uploadingJson && uploadTargetProvider === 'ollama' ? '⏳ Uploading...' : '🦙 Upload Ollama JSON'}
-            </button>
           </div>
         </div>
 
-        {/* Hidden JSON file input */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept=".json,application/json"
-          style={{ display: 'none' }}
-          onChange={handleJsonFileSelected}
-        />
-
-        {/* Upload Notification / Alert */}
-        {uploadAlert && (
-          <div className={`alert-message ${uploadAlert.type}`} style={{ marginBottom: '1.25rem' }}>
-            <span>{uploadAlert.type === 'success' ? '✅' : '⚠️'}</span>
-            <div>{uploadAlert.message}</div>
+        {/* Page Notification / Alert */}
+        {pageAlert && (
+          <div className={`alert-message ${pageAlert.type}`} style={{ marginBottom: '1.25rem' }}>
+            <span>{pageAlert.type === 'success' ? '✅' : '⚠️'}</span>
+            <div>{pageAlert.message}</div>
             <button
               type="button"
-              onClick={() => setUploadAlert(null)}
+              onClick={() => setPageAlert(null)}
               style={{ background: 'none', border: 'none', color: 'inherit', marginLeft: 'auto', cursor: 'pointer' }}
             >
               ×
@@ -600,17 +523,9 @@ export default function TeacherSubmissionsPage() {
               <div className="portal-card" style={{ padding: '3.5rem', textAlign: 'center' }}>
                 <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📋</div>
                 <h3 style={{ color: '#0f172a', marginBottom: '0.5rem' }}>No Evaluations Uploaded Yet</h3>
-                <p style={{ color: '#64748b', maxWidth: '500px', margin: '0 auto 1.5rem' }}>
-                  Click <strong>Upload JSON</strong> above to upload your lab evaluation report.
-                  The table will automatically populate dynamic student rows with aligned Week 1–12 scores.
+                <p style={{ color: '#64748b', maxWidth: '520px', margin: '0 auto', lineHeight: '1.5' }}>
+                  No evaluation reports have been uploaded yet. Evaluation records will appear once an administrator uploads evaluation JSON batches in the Administrator Console.
                 </p>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={handleUploadButtonClick}
-                >
-                  📤 Upload First Evaluation JSON
-                </button>
               </div>
             ) : (
               /* ONE Common Week 1 to Week 12 Table with Inline Expansion */

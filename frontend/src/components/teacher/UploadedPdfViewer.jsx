@@ -239,39 +239,29 @@ export default function UploadedPdfViewer({
 
   return (
     <div className="uploaded-pdf-container">
-      {/* Light PDF Action Toolbar */}
-      <div className="pdf-toolbar">
-        {/* Left: Metadata info */}
-        <div className="pdf-toolbar-info">
-          <span className="pdf-toolbar-badge">
-            📄 <strong>{sourceFilename}</strong>
-          </span>
-          <span className="pdf-toolbar-student">
-            {studentId} • {week}
-          </span>
+      {/* Unified Header with Download PDF beside title */}
+      <div className="side-by-side-col-header">
+        <div className="col-header-left">
+          <span className="side-col-title">📄 Student Uploaded PDF</span>
           {numPages > 0 && (
-            <span className="pdf-toolbar-pages-chip">
+            <span className="col-header-badge">
               {numPages} {numPages === 1 ? 'Page' : 'Pages'}
             </span>
           )}
-        </div>
-
-        {/* Center: Zoom and Mode Controls */}
-        <div className="pdf-toolbar-center">
-          {viewerMode === 'light' && (
-            <div className="pdf-zoom-controls">
+          {viewerMode === 'light' && !pdfJsError && (
+            <div className="pdf-zoom-inline" title="Adjust PDF zoom">
               <button
                 type="button"
-                className="btn-zoom"
+                className="btn-zoom-mini"
                 onClick={handleZoomOut}
                 title="Zoom Out"
               >
                 −
               </button>
-              <span className="zoom-level-text">{Math.round(scale * 100)}%</span>
+              <span className="zoom-level-text-mini">{Math.round(scale * 100)}%</span>
               <button
                 type="button"
-                className="btn-zoom"
+                className="btn-zoom-mini"
                 onClick={handleZoomIn}
                 title="Zoom In"
               >
@@ -279,52 +269,34 @@ export default function UploadedPdfViewer({
               </button>
               <button
                 type="button"
-                className="btn-zoom-reset"
+                className="btn-zoom-reset-mini"
                 onClick={handleResetZoom}
-                title="Reset to 115%"
+                title="Reset zoom to 115%"
               >
                 Fit
               </button>
             </div>
           )}
-
-          {!pdfJsError && (
-            <div className="pdf-mode-toggle" title="Switch viewer rendering mode">
-              <button
-                type="button"
-                className={`btn-mode-toggle ${viewerMode === 'light' ? 'active' : ''}`}
-                onClick={() => setViewerMode('light')}
-              >
-                ☀️ Light Viewer
-              </button>
-              <button
-                type="button"
-                className={`btn-mode-toggle ${viewerMode === 'browser' ? 'active' : ''}`}
-                onClick={() => setViewerMode('browser')}
-              >
-                🌐 Browser Native
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Right: Actions */}
-        <div className="pdf-toolbar-actions">
+        <div className="col-header-actions">
           <button
             type="button"
-            className="btn-secondary btn-sm"
+            className="btn-header-action secondary"
             onClick={handleOpenInNewTab}
             title="Open PDF in a new browser window"
           >
-            <span>↗️</span> Open in New Tab
+            <span>↗</span>
+            <span>Open</span>
           </button>
           <button
             type="button"
-            className="btn-primary btn-sm"
+            className="btn-header-action primary"
             onClick={handleDownload}
             title={`Download ${sourceFilename}`}
           >
-            <span>⬇️</span> Download PDF
+            <span>⬇</span>
+            <span>Download PDF</span>
           </button>
         </div>
       </div>
