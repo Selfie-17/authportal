@@ -223,17 +223,8 @@ export default function AdminDashboardPage() {
 
       <main className="portal-container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1.5rem 4rem' }}>
         {/* Top Header with Primary Action Button */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '1rem',
-            marginBottom: '1.75rem',
-          }}
-        >
-          <div>
+        <div className="admin-header-row">
+          <div className="admin-header-info">
             <h1 className="portal-title" style={{ fontSize: '1.65rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
               Administrator Console
             </h1>
