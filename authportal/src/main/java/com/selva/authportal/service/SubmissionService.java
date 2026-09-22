@@ -125,6 +125,9 @@ public class SubmissionService {
             submission.setStudentId(studentId); // update studentId label if student edited it
             submission.setVersion(submission.getVersion() + 1);
             submission.setStatus(SubmissionStatus.UPDATED);
+            if (request.getBranch() != null) {
+                submission.setBranch(request.getBranch().trim());
+            }
 
             // Clean up previous files in storage
             try {
@@ -145,6 +148,7 @@ public class SubmissionService {
                     .week(request.getWeek())
                     .year(request.getYear())
                     .section(request.getSection())
+                    .branch(request.getBranch() != null ? request.getBranch().trim() : null)
                     .storagePath(relativeStoragePath)
                     .status(SubmissionStatus.SUBMITTED)
                     .version(1)

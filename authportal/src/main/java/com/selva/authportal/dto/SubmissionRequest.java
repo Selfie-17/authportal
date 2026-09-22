@@ -35,4 +35,6 @@ public class SubmissionRequest {
     @Min(value = 1, message = "Section must be between 1 and 6")
     @Max(value = 6, message = "Section must be between 1 and 6")
     private Integer section;
+
+    private String branch;
 }

@@ -28,6 +28,7 @@ public class SubmissionResponse {
     private Integer week;
     private YearLevel year;
     private Integer section;
+    private String branch;
     private SubmissionStatus status;
     private Integer version;
     private List<SubmissionFileDTO> files;
@@ -45,6 +46,7 @@ public class SubmissionResponse {
                 .week(submission.getWeek())
                 .year(submission.getYear())
                 .section(submission.getSection())
+                .branch(submission.getBranch())
                 .status(submission.getStatus())
                 .version(submission.getVersion())
                 .createdAt(submission.getCreatedAt())

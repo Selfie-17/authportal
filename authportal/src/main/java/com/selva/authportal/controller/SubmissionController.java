@@ -44,15 +44,20 @@ public class SubmissionController {
     private final UserRepository userRepository;
 
     /**
-     * Pre-populates the editable student ID from the authenticated user's institutional email.
-     * Example: n210001@rguktn.ac.in -> N210001
+     * Pre-populates the editable student ID and academic metadata from the authenticated user's profile.
+     * Example: n210001@rguktn.ac.in -> N210001, branch=CSE, academicYear=E1, section=Section 6
      */
     @GetMapping("/default-student-id")
     @PreAuthorize("hasAnyRole('STUDENT', 'ADMIN')")
     public ResponseEntity<Map<String, String>> getDefaultStudentId(@AuthenticationPrincipal UserDetails userDetails) {
         User currentUser = resolveCurrentUser(userDetails);
         String defaultId = submissionService.deriveDefaultStudentId(currentUser.getEmail());
-        return ResponseEntity.ok(Map.of("studentId", defaultId));
+        Map<String, String> response = new java.util.HashMap<>();
+        response.put("studentId", defaultId);
+        response.put("branch", currentUser.getBranch());
+        response.put("academicYear", currentUser.getAcademicYear());
+        response.put("section", currentUser.getSection());
+        return ResponseEntity.ok(response);
     }
 
     /**

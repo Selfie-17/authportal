@@ -21,7 +21,8 @@ export const submissionService = {
   },
 
   /**
-   * Derives default student ID from institutional email on server.
+   * Derives default student ID and profile metadata from the server.
+   * Returns { studentId, branch, academicYear, section }
    */
   async getDefaultStudentId() {
     const response = await fetch(API_ENDPOINTS.DEFAULT_STUDENT_ID, {
@@ -29,10 +30,9 @@ export const submissionService = {
       headers: this.getHeaders(),
     });
     if (!response.ok) {
-      throw new Error('Failed to fetch default student ID.');
+      throw new Error('Failed to fetch default student data.');
     }
-    const data = await response.json();
-    return data.studentId || '';
+    return response.json();
   },
 
   /**

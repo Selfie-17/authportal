@@ -64,6 +64,9 @@ public class Submission {
     @Column(nullable = false)
     private Integer section;
 
+    @Column(name = "branch", length = 50)
+    private String branch;
+
     @Column(name = "storage_path", nullable = false, length = 512)
     private String storagePath;
 

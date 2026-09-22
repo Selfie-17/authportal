@@ -4,11 +4,36 @@ import FileUploadZone from '../components/FileUploadZone';
 import { submissionService } from '../services/submissionService';
 import '../styles/portal.css';
 
+const BRANCH_OPTIONS = [
+  { code: 'CSE', name: 'Computer Science & Engineering (CSE)' },
+  { code: 'ECE', name: 'Electronics & Communication Engineering (ECE)' },
+  { code: 'EEE', name: 'Electrical & Electronics Engineering (EEE)' },
+  { code: 'ME', name: 'Mechanical Engineering (ME)' },
+  { code: 'CE', name: 'Civil Engineering (CE)' },
+  { code: 'CHE', name: 'Chemical Engineering (CHE)' },
+  { code: 'MME', name: 'Metallurgical & Materials Engineering (MME)' },
+];
+
+/**
+ * Extracts numeric section (1-6) from a profile section string like "Section 6".
+ * Returns the number if parseable, or the fallback default.
+ */
+function parseSectionNumber(sectionStr, fallback = 1) {
+  if (!sectionStr) return fallback;
+  const match = String(sectionStr).match(/(\d+)/);
+  if (match) {
+    const num = Number(match[1]);
+    if (num >= 1 && num <= 6) return num;
+  }
+  return fallback;
+}
+
 export default function StudentSubmissionPage() {
   const [studentId, setStudentId] = useState('');
   const [week, setWeek] = useState(1);
   const [year, setYear] = useState('E1');
   const [section, setSection] = useState(1);
+  const [branch, setBranch] = useState('CSE');
   const [files, setFiles] = useState([]);
 
   const [submissions, setSubmissions] = useState([]);
@@ -18,20 +43,29 @@ export default function StudentSubmissionPage() {
   const [errorMessage, setErrorMessage] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
 
-  // Fetch initial student ID and student's history on mount
+  // Fetch initial student ID + profile metadata and student's history on mount
   useEffect(() => {
-    loadDefaultId();
+    loadDefaults();
     loadHistory();
   }, []);
 
-  const loadDefaultId = async () => {
+  const loadDefaults = async () => {
     try {
-      const defaultId = await submissionService.getDefaultStudentId();
-      if (defaultId) {
-        setStudentId(defaultId);
+      const data = await submissionService.getDefaultStudentId();
+      if (data.studentId) {
+        setStudentId(data.studentId);
+      }
+      if (data.branch && BRANCH_OPTIONS.some((b) => b.code === data.branch)) {
+        setBranch(data.branch);
+      }
+      if (data.academicYear && ['E1', 'E2', 'E3', 'E4'].includes(data.academicYear)) {
+        setYear(data.academicYear);
+      }
+      if (data.section) {
+        setSection(parseSectionNumber(data.section));
       }
     } catch (err) {
-      console.warn('Could not pre-fill student ID:', err.message);
+      console.warn('Could not pre-fill defaults:', err.message);
     }
   };
 
@@ -76,6 +110,7 @@ export default function StudentSubmissionPage() {
       formData.append('week', week);
       formData.append('year', year);
       formData.append('section', section);
+      formData.append('branch', branch);
 
       files.forEach((file) => {
         formData.append('files', file);
@@ -176,6 +211,24 @@ export default function StudentSubmissionPage() {
               </div>
 
               <div className="form-group">
+                <label className="form-label" htmlFor="branchSelect">
+                  Branch
+                </label>
+                <select
+                  id="branchSelect"
+                  className="form-select"
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                >
+                  {BRANCH_OPTIONS.map((b) => (
+                    <option key={b.code} value={b.code}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
                 <label className="form-label" htmlFor="weekSelect">
                   Lab Week
                 </label>
@@ -231,19 +284,6 @@ export default function StudentSubmissionPage() {
               </div>
             </div>
 
-            {/* {existingSubmission && (
-              <div className="revision-banner updated">
-                <span>ℹ️</span>
-                <div>
-                  <strong>Existing submission detected:</strong> You previously submitted Week{' '}
-                  {existingSubmission.week}, {existingSubmission.year}, Section{' '}
-                  {existingSubmission.section} (Current Revision:{' '}
-                  <span className="revision-badge">Rev {existingSubmission.version}</span>). Submitting
-                  now will increment the revision counter and replace previously stored files.
-                </div>
-              </div>
-            )} */}
-
 
             <FileUploadZone
               files={files}
@@ -297,6 +337,7 @@ export default function StudentSubmissionPage() {
                 <thead>
                   <tr>
                     <th>Week</th>
+                    <th>Branch</th>
                     <th>Year & Sec</th>
                     <th>Student ID</th>
                     <th>Revision</th>
@@ -311,6 +352,9 @@ export default function StudentSubmissionPage() {
                     <tr key={sub.id}>
                       <td>
                         <strong>Week {sub.week}</strong>
+                      </td>
+                      <td>
+                        {sub.branch || '—'}
                       </td>
                       <td>
                         {sub.year} — Sec {sub.section}
