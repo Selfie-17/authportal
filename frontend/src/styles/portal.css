@@ -269,6 +269,12 @@
   margin-bottom: 1.75rem;
 }
 
+@media (max-width: 768px) {
+  .portal-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
