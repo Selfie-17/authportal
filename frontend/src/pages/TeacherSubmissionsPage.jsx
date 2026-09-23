@@ -22,7 +22,7 @@ export default function TeacherSubmissionsPage() {
   // ==============================================================================
   const [gridData, setGridData] = useState({ weeks: [], rows: [], totalStudents: 0 });
   const [gridLoading, setGridLoading] = useState(false);
-  const [providerFilter, setProviderFilter] = useState('all'); // 'all' | 'gemini' | 'ollama'
+  const [providerFilter] = useState('all');
   const [pageAlert, setPageAlert] = useState(null);
 
   // Student metadata lookup cache (studentId -> { name, year, section, email })
@@ -402,7 +402,7 @@ export default function TeacherSubmissionsPage() {
       <Navbar />
 
       <main className="portal-container teacher-eval-page">
-        {/* Top Header: Title, Subtitle & Model View Actions */}
+        {/* Top Header: Title */}
         <div
           style={{
             display: 'flex',
@@ -413,41 +413,11 @@ export default function TeacherSubmissionsPage() {
             marginBottom: '1.75rem',
           }}
         >
-          <div>
+          {/* <div>
             <h1 style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
               Teacher Dashboard
             </h1>
-            <p style={{ fontSize: '0.9rem', color: '#64748b', margin: '0.35rem 0 0', maxWidth: '750px' }}>
-              Review automated laboratory evaluations (Gemini & Ollama), monitor section scores, inspect detailed student reports, and save human teacher feedback.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-            {/* AI Model Table View Filter */}
-            <div className="provider-filter-chips" title="Switch table display between AI models">
-              <button
-                type="button"
-                className={`btn-provider-chip ${providerFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setProviderFilter('all')}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={`btn-provider-chip gemini ${providerFilter === 'gemini' ? 'active' : ''}`}
-                onClick={() => setProviderFilter('gemini')}
-              >
-                Gemini
-              </button>
-              <button
-                type="button"
-                className={`btn-provider-chip ollama ${providerFilter === 'ollama' ? 'active' : ''}`}
-                onClick={() => setProviderFilter('ollama')}
-              >
-                Ollama
-              </button>
-            </div>
-          </div>
+          </div> */}
         </div>
 
         {/* Page Notification / Alert */}
