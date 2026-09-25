@@ -72,7 +72,7 @@ export function deriveSection(studentId, submissionSection, evaluationSectionId)
 }
 
 /**
- * Extracts student ID from an institutional email address (e.g. n241003@rguktn.ac.in -> N241003).
+ * Extracts student ID from an institutional email address (e.g. n241003@rguktn.ac.in, r241003@rguktrkv.ac.in -> N241003, R241003).
  */
 export function extractStudentIdFromEmail(email) {
   if (!email || typeof email !== 'string') return null;

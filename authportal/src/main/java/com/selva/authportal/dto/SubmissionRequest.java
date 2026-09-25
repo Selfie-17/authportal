@@ -20,7 +20,7 @@ import lombok.*;
 public class SubmissionRequest {
 
     @NotBlank(message = "Student ID is required")
-    @Pattern(regexp = "^[Nn]\\d{6}$", message = "Student ID must follow institutional format (e.g. N210001)")
+    @Pattern(regexp = "^[A-Za-z]\\d{6}$", message = "Student ID must follow institutional format (e.g. N210001, R210001, O210001, S210001)")
     private String studentId;
 
     @NotNull(message = "Week number is required")

@@ -127,6 +127,33 @@ public class AdminController {
                 .build());
     }
 
+    /**
+     * Lists all teacher feedbacks with optional filters for student ID, week, teacher email, reviewed, and query.
+     */
+    @GetMapping("/feedbacks")
+    public ResponseEntity<List<TeacherFeedbackResponse>> listFeedbacks(
+            @RequestParam(value = "studentId", required = false) String studentId,
+            @RequestParam(value = "week", required = false) String week,
+            @RequestParam(value = "teacherEmail", required = false) String teacherEmail,
+            @RequestParam(value = "reviewed", required = false) Boolean reviewed,
+            @RequestParam(value = "query", required = false) String query
+    ) {
+        List<TeacherFeedbackResponse> feedbacks = adminService.getAllFeedbacks(studentId, week, teacherEmail, reviewed, query);
+        return ResponseEntity.ok(feedbacks);
+    }
+
+    /**
+     * Deletes a teacher feedback entry by ID.
+     */
+    @DeleteMapping("/feedbacks/{id}")
+    public ResponseEntity<ApiResponse> deleteFeedback(@PathVariable("id") Long id) {
+        adminService.deleteFeedback(id);
+        return ResponseEntity.ok(ApiResponse.builder()
+                .success(true)
+                .message("Teacher feedback deleted successfully.")
+                .build());
+    }
+
     private User resolveCurrentUser(UserDetails userDetails) {
         if (userDetails instanceof CustomUserDetails customUserDetails) {
             return customUserDetails.getUser();

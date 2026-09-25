@@ -218,12 +218,20 @@ class TeacherEvaluationControllerTest {
 
         when(evaluationService.loadStudentPdf(eq("N241003"), eq("Week 4"))).thenReturn(downloadable);
 
-        mockMvc.perform(get("/api/teacher/evaluations/pdf")
+        org.springframework.test.web.servlet.MvcResult mvcResult = mockMvc.perform(get("/api/teacher/evaluations/pdf")
                         .param("studentId", "N241003")
                         .param("week", "Week 4"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"observation_report.pdf\""))
                 .andExpect(header().string(org.springframework.http.HttpHeaders.CONTENT_TYPE, "application/pdf"))
-                .andExpect(content().bytes("%PDF-1.4 test".getBytes()));
+                .andReturn();
+
+        if (mvcResult.getRequest().isAsyncStarted()) {
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(mvcResult))
+                    .andExpect(status().isOk())
+                    .andExpect(content().bytes("%PDF-1.4 test".getBytes()));
+        } else {
+            org.junit.jupiter.api.Assertions.assertArrayEquals("%PDF-1.4 test".getBytes(), mvcResult.getResponse().getContentAsByteArray());
+        }
     }
 }

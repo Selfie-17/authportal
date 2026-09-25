@@ -25,6 +25,8 @@ export const API_ENDPOINTS = {
   ADMIN_USER_STATUS: (id) => `${API_BASE_URL}/api/admin/users/${id}/status`,
   ADMIN_SUBMISSIONS: `${API_BASE_URL}/api/admin/submissions`,
   ADMIN_SUBMISSION_DELETE: (id) => `${API_BASE_URL}/api/admin/submissions/${id}`,
+  ADMIN_FEEDBACKS: `${API_BASE_URL}/api/admin/feedbacks`,
+  ADMIN_FEEDBACK_DELETE: (id) => `${API_BASE_URL}/api/admin/feedbacks/${id}`,
   // Profile endpoints
   PROFILE: `${API_BASE_URL}/api/profile`,
   PROFILE_PASSWORD: `${API_BASE_URL}/api/profile/change-password`,

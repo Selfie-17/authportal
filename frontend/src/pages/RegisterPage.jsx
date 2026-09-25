@@ -11,7 +11,7 @@ export default function RegisterPage() {
   return (
     <AuthLayout
       title="Create your account"
-      description="Register using your institutional @rguktn.ac.in address"
+      description="Register using your institutional RGUKT address (@rguktn.ac.in, @rguktrkv.ac.in, @rguktong.ac.in, @rguktsklm.ac.in, @rgukt.in)"
       footerText="Already have an account?"
       footerLinkText="Sign in"
       footerLinkTo="/login"

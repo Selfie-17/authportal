@@ -186,4 +186,39 @@ class AdminControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("Submission deleted successfully."));
     }
+
+    @Test
+    @DisplayName("Should list feedbacks with filters")
+    void shouldListFeedbacks() throws Exception {
+        TeacherFeedbackResponse fb = TeacherFeedbackResponse.builder()
+                .id(1L)
+                .studentId("N210001")
+                .week("Week 1")
+                .reviewed(true)
+                .feedbackText("Well done")
+                .teacherEmail("teacher@rguktn.ac.in")
+                .build();
+
+        when(adminService.getAllFeedbacks(any(), any(), any(), any(), any()))
+                .thenReturn(List.of(fb));
+
+        mockMvc.perform(get("/api/admin/feedbacks")
+                        .param("studentId", "N210001")
+                        .param("reviewed", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].studentId").value("N210001"))
+                .andExpect(jsonPath("$[0].reviewed").value(true))
+                .andExpect(jsonPath("$[0].feedbackText").value("Well done"));
+    }
+
+    @Test
+    @DisplayName("Should delete feedback successfully")
+    void shouldDeleteFeedback() throws Exception {
+        doNothing().when(adminService).deleteFeedback(5L);
+
+        mockMvc.perform(delete("/api/admin/feedbacks/5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Teacher feedback deleted successfully."));
+    }
 }

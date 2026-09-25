@@ -93,8 +93,8 @@ export default function StudentSubmissionPage() {
 
     // Form validations
     const studentIdClean = studentId.trim().toUpperCase();
-    if (!/^[Nn]\d{6}$/.test(studentIdClean)) {
-      setErrorMessage('Student ID must start with N followed by 6 digits (e.g. N210001).');
+    if (!/^[A-Za-z]\d{6}$/.test(studentIdClean)) {
+      setErrorMessage('Student ID must follow institutional format (e.g. N210001, R210001, O210001, S210001).');
       return;
     }
 

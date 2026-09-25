@@ -7,6 +7,7 @@ import com.selva.authportal.exception.UserAlreadyExistsException;
 import com.selva.authportal.model.*;
 import com.selva.authportal.repository.SubmissionRepository;
 import com.selva.authportal.repository.SubmissionSpecification;
+import com.selva.authportal.repository.TeacherFeedbackRepository;
 import com.selva.authportal.repository.UserRepository;
 import com.selva.authportal.repository.UserSpecification;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,7 @@ import java.util.stream.Collectors;
 
 /**
  * Service managing administrative operations (user provisioning, role management,
- * status toggling, submission oversight, and physical deletion).
+ * status toggling, submission oversight, feedback oversight, and physical deletion).
  */
 @Slf4j
 @Service
@@ -31,6 +32,7 @@ public class AdminService {
 
     private final UserRepository userRepository;
     private final SubmissionRepository submissionRepository;
+    private final TeacherFeedbackRepository feedbackRepository;
     private final StorageService storageService;
     private final PasswordEncoder passwordEncoder;
 
@@ -163,6 +165,61 @@ public class AdminService {
     }
 
     /**
+     * Lists all teacher feedbacks with optional filters for studentId, week, teacherEmail, reviewed, and text query.
+     */
+    @Transactional(readOnly = true)
+    public List<TeacherFeedbackResponse> getAllFeedbacks(String studentId, String week, String teacherEmail, Boolean reviewed, String query) {
+        return feedbackRepository.findAll().stream()
+                .filter(fb -> {
+                    if (studentId != null && !studentId.trim().isEmpty()) {
+                        if (fb.getStudentId() == null || !fb.getStudentId().equalsIgnoreCase(studentId.trim())) {
+                            return false;
+                        }
+                    }
+                    if (week != null && !week.trim().isEmpty()) {
+                        if (fb.getWeek() == null || !fb.getWeek().equalsIgnoreCase(week.trim())) {
+                            return false;
+                        }
+                    }
+                    if (teacherEmail != null && !teacherEmail.trim().isEmpty()) {
+                        if (fb.getTeacherEmail() == null || !fb.getTeacherEmail().toLowerCase().contains(teacherEmail.trim().toLowerCase())) {
+                            return false;
+                        }
+                    }
+                    if (reviewed != null) {
+                        if (fb.isReviewed() != reviewed) {
+                            return false;
+                        }
+                    }
+                    if (query != null && !query.trim().isEmpty()) {
+                        String q = query.trim().toLowerCase();
+                        boolean matchId = fb.getStudentId() != null && fb.getStudentId().toLowerCase().contains(q);
+                        boolean matchEmail = fb.getTeacherEmail() != null && fb.getTeacherEmail().toLowerCase().contains(q);
+                        boolean matchText = fb.getFeedbackText() != null && fb.getFeedbackText().toLowerCase().contains(q);
+                        boolean matchWeek = fb.getWeek() != null && fb.getWeek().toLowerCase().contains(q);
+                        if (!matchId && !matchEmail && !matchText && !matchWeek) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .sorted(Comparator.comparing(TeacherFeedback::getUpdatedAt, Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .map(TeacherFeedbackResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Deletes a feedback entry by ID.
+     */
+    @Transactional
+    public void deleteFeedback(Long feedbackId) {
+        TeacherFeedback feedback = feedbackRepository.findById(feedbackId)
+                .orElseThrow(() -> new ResourceNotFoundException("Feedback not found with id: " + feedbackId));
+        feedbackRepository.delete(feedback);
+        log.info("Deleted teacher feedback id {} for student {} week {}", feedbackId, feedback.getStudentId(), feedback.getWeek());
+    }
+
+    /**
      * Aggregates key system metrics for the administrative dashboard.
      */
     @Transactional(readOnly = true)
@@ -173,6 +230,7 @@ public class AdminService {
                 .teacherCount(userRepository.countByRole(Role.TEACHER))
                 .adminCount(userRepository.countByRole(Role.ADMIN))
                 .totalSubmissions(submissionRepository.count())
+                .totalFeedbacks(feedbackRepository.count())
                 .build();
     }
 }

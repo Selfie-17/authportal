@@ -167,8 +167,8 @@ export default function RegisterForm() {
         type="email"
         value={formData.email}
         onChange={handleChange}
-        placeholder="e.g., n260001@rguktn.ac.in"
-        helperText="Students use N/n + 6 digits (e.g., N210001@rguktn.ac.in)"
+        placeholder="e.g., n260001@rguktn.ac.in or r260001@rguktrkv.ac.in"
+        helperText="Students use campus prefix + 6 digits (e.g., N210001, R210001, O210001, S210001)"
         error={errors.email}
         required
         disabled={isLoading}

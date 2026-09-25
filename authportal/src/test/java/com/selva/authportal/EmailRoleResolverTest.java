@@ -193,4 +193,52 @@ class EmailRoleResolverTest {
                 () -> emailRoleResolver.resolveOAuthRole(email)
         );
     }
+
+    @Test
+    @DisplayName("Multi-Campus: Should recognize institutional domains for all RGUKT campuses and @rgukt.in")
+    void testMultiCampusDomains() {
+        TeacherEligibilityService teacherEligibilityService = new TeacherEligibilityService(
+                "dean.rkvalley@rguktrkv.ac.in,hod.cse@rguktong.ac.in,faculty@rguktsklm.ac.in"
+        );
+        EmailRoleResolver multiResolver = new EmailRoleResolver(
+                "^[A-Za-z]\\d{6}@(rguktn\\.ac\\.in|rguktrkv\\.ac\\.in|rguktong\\.ac\\.in|rguktsklm\\.ac\\.in|rgukt\\.in)$",
+                "rguktn.ac.in,rguktrkv.ac.in,rguktong.ac.in,rguktsklm.ac.in,rgukt.in",
+                teacherEligibilityService,
+                "uday@rguktn.ac.in,kampadevaselvaraj@gmail.com"
+        );
+
+        // Institutional domain check
+        assertTrue(multiResolver.isInstitutionalDomain("n210921@rguktn.ac.in"));
+        assertTrue(multiResolver.isInstitutionalDomain("r210921@rguktrkv.ac.in"));
+        assertTrue(multiResolver.isInstitutionalDomain("o210921@rguktong.ac.in"));
+        assertTrue(multiResolver.isInstitutionalDomain("s210921@rguktsklm.ac.in"));
+        assertTrue(multiResolver.isInstitutionalDomain("r210921@rgukt.in"));
+        assertFalse(multiResolver.isInstitutionalDomain("random@gmail.com"));
+
+        // Allowed OAuth check
+        assertTrue(multiResolver.isAllowedOAuthEmail("r210921@rguktrkv.ac.in"));
+        assertTrue(multiResolver.isAllowedOAuthEmail("o210921@rguktong.ac.in"));
+        assertTrue(multiResolver.isAllowedOAuthEmail("s210921@rguktsklm.ac.in"));
+        assertTrue(multiResolver.isAllowedOAuthEmail("user@rgukt.in"));
+
+        // OAuth Role Resolution - Students
+        assertEquals(Role.STUDENT, multiResolver.resolveOAuthRole("r210921@rguktrkv.ac.in"));
+        assertEquals(Role.STUDENT, multiResolver.resolveOAuthRole("o210921@rguktong.ac.in"));
+        assertEquals(Role.STUDENT, multiResolver.resolveOAuthRole("s210921@rguktsklm.ac.in"));
+        assertEquals(Role.STUDENT, multiResolver.resolveOAuthRole("n210921@rguktn.ac.in"));
+        assertEquals(Role.STUDENT, multiResolver.resolveOAuthRole("r210921@rgukt.in"));
+
+        // OAuth Role Resolution - Teachers (any other institutional email)
+        assertEquals(Role.TEACHER, multiResolver.resolveOAuthRole("director@rguktrkv.ac.in"));
+        assertEquals(Role.TEACHER, multiResolver.resolveOAuthRole("hod.ece@rguktong.ac.in"));
+        assertEquals(Role.TEACHER, multiResolver.resolveOAuthRole("faculty@rguktsklm.ac.in"));
+        assertEquals(Role.TEACHER, multiResolver.resolveOAuthRole("admin.office@rgukt.in"));
+
+        // Local registration Role Resolution
+        assertEquals(Role.STUDENT, multiResolver.resolveRole("r210921@rguktrkv.ac.in"));
+        assertEquals(Role.STUDENT, multiResolver.resolveRole("o210921@rguktong.ac.in"));
+        assertEquals(Role.STUDENT, multiResolver.resolveRole("s210921@rguktsklm.ac.in"));
+        assertEquals(Role.TEACHER, multiResolver.resolveRole("dean.rkvalley@rguktrkv.ac.in"));
+        assertEquals(Role.TEACHER, multiResolver.resolveRole("hod.cse@rguktong.ac.in"));
+    }
 }

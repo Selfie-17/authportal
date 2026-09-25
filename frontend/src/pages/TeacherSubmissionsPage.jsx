@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Navbar from '../components/Navbar';
 import TeacherReportView from '../components/TeacherReportView';
-import TeacherStats from '../components/teacher/TeacherStats';
 import ReportFilters from '../components/teacher/ReportFilters';
 import StudentScoreTable from '../components/teacher/StudentScoreTable';
 import { submissionService } from '../services/submissionService';
@@ -11,9 +10,6 @@ import { deriveEngineering, deriveSection } from '../utils/studentDataHelper';
 import '../styles/portal.css';
 
 export default function TeacherSubmissionsPage() {
-  // View switcher: 'evaluations' (Observation Reports) vs 'submissions' (File Submissions & ZIP)
-  const [activeTab, setActiveTab] = useState('evaluations');
-
   // Selected report for single-student full report viewer (TeacherReportView)
   const [selectedReport, setSelectedReport] = useState(null);
 
@@ -33,32 +29,11 @@ export default function TeacherSubmissionsPage() {
   const [filterSection, setFilterSection] = useState('ALL');
   const [filterSearch, setFilterSearch] = useState('');
 
-  // ==============================================================================
-  // File Submissions & Batch ZIP State (Preserved)
-  // ==============================================================================
-  const [week, setWeek] = useState(1);
-  const [year, setYear] = useState('');
-  const [section, setSection] = useState(1);
-  const [studentId, setStudentId] = useState('');
-  const [submissions, setSubmissions] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [downloadingZip, setDownloadingZip] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(null);
-
-  // High-performance loading: only fetch the lightweight grid on evaluations tab
+  // Initial load
   useEffect(() => {
-    if (activeTab === 'evaluations') {
-      loadGrid();
-    }
-  }, [activeTab]);
-
-  // Load submissions whenever submissions tab filters change
-  useEffect(() => {
-    if (activeTab === 'submissions') {
-      fetchSubmissions();
-      loadStudentMetadata();
-    }
-  }, [activeTab, week, year, section]);
+    loadGrid();
+    loadStudentMetadata();
+  }, []);
 
   // ----------------------------------------------------------------------------
   // Evaluation Data Handlers
@@ -227,14 +202,14 @@ export default function TeacherSubmissionsPage() {
     try {
       setGridLoading(true);
       await evaluationService.deleteStudentReport(studentId, week);
-      setUploadAlert({
+      setPageAlert({
         type: 'success',
         message: `Successfully deleted ${week} evaluation report for ${studentId}.`,
       });
       await loadGrid(true);
     } catch (err) {
       console.error('Failed to delete report:', err);
-      setUploadAlert({
+      setPageAlert({
         type: 'error',
         message: err.message || `Failed to delete ${week} report for ${studentId}.`,
       });
@@ -245,7 +220,7 @@ export default function TeacherSubmissionsPage() {
 
   const handleReportDeletedFromView = ({ studentId, week }) => {
     setSelectedReport(null);
-    setUploadAlert({
+    setPageAlert({
       type: 'success',
       message: `Successfully deleted ${week} evaluation report for ${studentId}.`,
     });
@@ -318,63 +293,6 @@ export default function TeacherSubmissionsPage() {
     return { averageScore: avg, reviewedCount: revCount, totalEvaluations: totalEvals };
   }, [gridData.rows]);
 
-  // ----------------------------------------------------------------------------
-  // Existing Submissions Handlers (Preserved)
-  // ----------------------------------------------------------------------------
-  const fetchSubmissions = async () => {
-    try {
-      setLoading(true);
-      setErrorMessage(null);
-      const data = await submissionService.filterTeacherSubmissions({
-        week: week || undefined,
-        year: year || undefined,
-        section: section || undefined,
-        studentId: studentId.trim() || undefined,
-      });
-      setSubmissions(data);
-    } catch (err) {
-      setErrorMessage(err.message || 'Failed to load submissions.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    fetchSubmissions();
-  };
-
-  const handleDownloadZip = async () => {
-    if (!week) {
-      alert('Please select a week to download the ZIP archive.');
-      return;
-    }
-
-    try {
-      setDownloadingZip(true);
-      await submissionService.downloadSubmissionsZip({
-        week,
-        year: year || undefined,
-        section: section || undefined,
-      });
-    } catch (err) {
-      alert('Failed to download ZIP: ' + err.message);
-    } finally {
-      setDownloadingZip(false);
-    }
-  };
-
-  const handleDownloadSingleFile = async (submissionId, fileId, filename) => {
-    try {
-      await submissionService.downloadFile(submissionId, fileId, filename);
-    } catch (err) {
-      alert('Failed to download file: ' + err.message);
-    }
-  };
-
-  const suggestedZipName = section
-    ? `week-${week}-sec-${section}.zip`
-    : `week-${week}.zip`;
 
   // ----------------------------------------------------------------------------
   // If Single Student Detailed Report is selected, render TeacherReportView
@@ -435,289 +353,44 @@ export default function TeacherSubmissionsPage() {
           </div>
         )}
 
-        {/* View Switcher Tabs */}
-        <div className="admin-tabs-nav" style={{ marginBottom: '1.5rem' }}>
-          <button
-            type="button"
-            className={`admin-tab-btn ${activeTab === 'evaluations' ? 'active' : ''}`}
-            onClick={() => setActiveTab('evaluations')}
-          >
-            <span>📊 Observation Reports</span>
-            <span className="admin-tab-badge">{gridData.totalStudents || 0}</span>
-          </button>
-          <button
-            type="button"
-            className={`admin-tab-btn ${activeTab === 'submissions' ? 'active' : ''}`}
-            onClick={() => setActiveTab('submissions')}
-          >
-            <span>📁 Student File Submissions & Batch ZIP</span>
-          </button>
-        </div>
+        {/* Observation Reports — Filter and Table */}
+        <ReportFilters
+          engineering={filterEngineering}
+          setEngineering={setFilterEngineering}
+          section={filterSection}
+          setSection={setFilterSection}
+          searchQuery={filterSearch}
+          setSearchQuery={setFilterSearch}
+          onSearchSubmit={() => {}}
+          totalCount={gridData.rows ? gridData.rows.length : 0}
+          filteredCount={filteredRows.length}
+          onClear={handleClearFilters}
+        />
 
-        {/* ====================================================================== */}
-        {/* TAB 1: TEACHER OBSERVATION REPORTS — COMMON TABLE & INLINE DETAIL VIEW  */}
-        {/* ====================================================================== */}
-        {activeTab === 'evaluations' && (
-          <div>
-            {/* Top Summary Statistics Bar (4 Cards Matching Screenshot) */}
-            <TeacherStats
-              totalStudents={gridData.totalStudents || (gridData.rows ? gridData.rows.length : 0)}
-              totalWeeks={gridData.weeks ? gridData.weeks.length : 0}
-              averageScore={averageScore}
-              reviewedCount={reviewedCount}
-              totalEvaluations={totalEvaluations}
-            />
-
-            {/* Filter Section Matching Screenshot */}
-            <ReportFilters
-              engineering={filterEngineering}
-              setEngineering={setFilterEngineering}
-              section={filterSection}
-              setSection={setFilterSection}
-              searchQuery={filterSearch}
-              setSearchQuery={setFilterSearch}
-              onSearchSubmit={() => {}}
-              totalCount={gridData.rows ? gridData.rows.length : 0}
-              filteredCount={filteredRows.length}
-              onClear={handleClearFilters}
-            />
-
-            {/* Main Content Area: Loading / Empty / Common Score Table */}
-            {gridLoading ? (
-              <div className="portal-card" style={{ padding: '3.5rem', textAlign: 'center' }}>
-                <div className="spinner" style={{ margin: '0 auto 1rem' }} />
-                <h3 style={{ color: '#0f172a' }}>Loading Student Evaluations...</h3>
-                <p style={{ color: '#64748b' }}>Retrieving student evaluations and teacher feedback.</p>
-              </div>
-            ) : gridData.weeks.length === 0 && (!gridData.rows || gridData.rows.length === 0) ? (
-              <div className="portal-card" style={{ padding: '3.5rem', textAlign: 'center' }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📋</div>
-                <h3 style={{ color: '#0f172a', marginBottom: '0.5rem' }}>No Evaluations Uploaded Yet</h3>
-                <p style={{ color: '#64748b', maxWidth: '520px', margin: '0 auto', lineHeight: '1.5' }}>
-                  No evaluation reports have been uploaded yet. Evaluation records will appear once an administrator uploads evaluation JSON batches in the Administrator Console.
-                </p>
-              </div>
-            ) : (
-              /* ONE Common Week 1 to Week 12 Table with Inline Expansion */
-              <StudentScoreTable
-                students={filteredRows}
-                studentMetaMap={studentMetaMap}
-                onViewReport={setSelectedReport}
-                onDeleteReport={handleDeleteReport}
-                providerFilter={providerFilter}
-              />
-            )}
+        {/* Main Content Area: Loading / Empty / Common Score Table */}
+        {gridLoading ? (
+          <div className="portal-card" style={{ padding: '3.5rem', textAlign: 'center' }}>
+            <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+            <h3 style={{ color: '#0f172a' }}>Loading Student Evaluations...</h3>
+            <p style={{ color: '#64748b' }}>Retrieving student evaluations and teacher feedback.</p>
           </div>
-        )}
-
-        {/* ====================================================================== */}
-        {/* TAB 2: STUDENT FILE SUBMISSIONS & BATCH ZIP (PRESERVED)                 */}
-        {/* ====================================================================== */}
-        {activeTab === 'submissions' && (
-          <div>
-            {errorMessage && (
-              <div className="alert-message error" style={{ marginBottom: '1.25rem' }}>
-                <span>⚠️</span>
-                <div>{errorMessage}</div>
-              </div>
-            )}
-
-            {/* Filter Controls Bar */}
-            <div className="filter-bar" style={{ marginBottom: '1.5rem' }}>
-              <div className="form-group">
-                <label className="filter-field-label">Week</label>
-                <select
-                  className="filter-field-select"
-                  value={week}
-                  onChange={(e) => setWeek(Number(e.target.value))}
-                >
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((w) => (
-                    <option key={w} value={w}>
-                      Week {w}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="filter-field-label">Year (Database Filter)</label>
-                <select
-                  className="filter-field-select"
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                >
-                  <option value="">All Years (E1–E4)</option>
-                  <option value="E1">Engineering 1 (E1)</option>
-                  <option value="E2">Engineering 2 (E2)</option>
-                  <option value="E3">Engineering 3 (E3)</option>
-                  <option value="E4">Engineering 4 (E4)</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="filter-field-label">Section</label>
-                <select
-                  className="filter-field-select"
-                  value={section}
-                  onChange={(e) => setSection(e.target.value ? Number(e.target.value) : '')}
-                >
-                  <option value="">All Sections</option>
-                  {[1, 2, 3, 4, 5, 6].map((s) => (
-                    <option key={s} value={s}>
-                      Section {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <form onSubmit={handleSearchSubmit} className="form-group">
-                <label className="filter-field-label">Search Student ID</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input
-                    type="text"
-                    className="filter-search-text"
-                    placeholder="e.g. N210001"
-                    value={studentId}
-                    onChange={(e) => setStudentId(e.target.value)}
-                    style={{
-                      height: '42px',
-                      padding: '0 0.85rem',
-                      background: '#ffffff',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '8px',
-                    }}
-                  />
-                  <button type="submit" className="btn-secondary" title="Search" style={{ height: '42px' }}>
-                    🔍
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* Submissions Table & Batch Actions */}
-            <div className="admin-card-container">
-              <div className="portal-card-header" style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0' }}>
-                <div>
-                  <h3 className="admin-card-header-title">
-                    Submissions ({submissions.length})
-                  </h3>
-                  <p className="admin-card-header-desc">
-                    Showing submissions for Week {week}
-                    {year ? ` · Year ${year}` : ''}
-                    {section ? ` · Section ${section}` : ' · All Sections'}
-                  </p>
-                </div>
-
-                <div className="zip-download-box">
-                  <span className="zip-badge">📁 {suggestedZipName}</span>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={handleDownloadZip}
-                    disabled={downloadingZip || submissions.length === 0}
-                    title="Download all submissions for selected week and section in structured ZIP format"
-                  >
-                    {downloadingZip ? '📦 Creating ZIP...' : '⬇️ Download Batch ZIP'}
-                  </button>
-                </div>
-              </div>
-
-              {loading ? (
-                <div className="empty-state" style={{ padding: '3rem' }}>Loading submissions...</div>
-              ) : submissions.length === 0 ? (
-                <div className="empty-state" style={{ padding: '3rem' }}>
-                  <div className="empty-state-icon">🔍</div>
-                  <h3>No Submissions Found</h3>
-                  <p>
-                    No student submissions match Week {week}
-                    {year ? `, Year ${year}` : ''}
-                    {section ? `, Section ${section}` : ''}.
-                  </p>
-                </div>
-              ) : (
-                <div className="modern-table-responsive">
-                  <table className="modern-table">
-                    <thead>
-                      <tr>
-                        <th>Student ID</th>
-                        <th>Student Name & Email</th>
-                        <th>Week / Year / Sec</th>
-                        <th>Revision</th>
-                        <th>Files ({submissions.reduce((acc, s) => acc + (s.files?.length || 0), 0)})</th>
-                        <th>Submitted At</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {submissions.map((sub) => (
-                        <tr key={sub.id}>
-                          <td>
-                            <strong style={{ fontSize: '0.95rem', color: '#1e293b' }}>
-                              <code className="student-id-badge">{sub.studentId}</code>
-                            </strong>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 600, color: '#0f172a' }}>{sub.userName}</div>
-                            <div style={{ fontSize: '0.775rem', color: '#64748b' }}>{sub.userEmail}</div>
-                          </td>
-                          <td>
-                            <span className="student-academic-chip">
-                              Week {sub.week} · {sub.year} · Sec {sub.section}
-                            </span>
-                          </td>
-                          <td>
-                            <span className="revision-badge">Rev {sub.version}</span>
-                            {sub.status === 'UPDATED' && (
-                              <span
-                                className="status-tag updated"
-                                style={{ marginLeft: '0.4rem', fontSize: '0.7rem' }}
-                              >
-                                UPDATED
-                              </span>
-                            )}
-                          </td>
-                          <td>
-                            <div className="file-chips" style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                              {sub.files && sub.files.length > 0 ? (
-                                sub.files.map((file) => (
-                                  <button
-                                    key={file.id}
-                                    type="button"
-                                    className="btn-file-chip"
-                                    onClick={() => handleDownloadSingleFile(sub.id, file.id, file.originalFilename)}
-                                    title={`Download ${file.originalFilename}`}
-                                    style={{
-                                      padding: '0.25rem 0.6rem',
-                                      fontSize: '0.75rem',
-                                      borderRadius: '6px',
-                                      border: '1px solid #cbd5e1',
-                                      background: '#f8fafc',
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    ⬇️ {file.originalFilename}
-                                  </button>
-                                ))
-                              ) : (
-                                <span style={{ color: '#94a3b8' }}>No files</span>
-                              )}
-                            </div>
-                          </td>
-                          <td style={{ fontSize: '0.825rem', color: '#64748b' }}>
-                            {new Date(sub.updatedAt || sub.createdAt).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+        ) : gridData.weeks.length === 0 && (!gridData.rows || gridData.rows.length === 0) ? (
+          <div className="portal-card" style={{ padding: '3.5rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📋</div>
+            <h3 style={{ color: '#0f172a', marginBottom: '0.5rem' }}>No Evaluations Uploaded Yet</h3>
+            <p style={{ color: '#64748b', maxWidth: '520px', margin: '0 auto', lineHeight: '1.5' }}>
+              No evaluation reports have been uploaded yet. Evaluation records will appear once an administrator uploads evaluation JSON batches in the Administrator Console.
+            </p>
           </div>
+        ) : (
+          /* ONE Common Week 1 to Week 12 Table with Inline Expansion */
+          <StudentScoreTable
+            students={filteredRows}
+            studentMetaMap={studentMetaMap}
+            onViewReport={setSelectedReport}
+            onDeleteReport={handleDeleteReport}
+            providerFilter={providerFilter}
+          />
         )}
       </main>
     </div>

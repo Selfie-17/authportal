@@ -9,7 +9,10 @@ import com.selva.authportal.model.AuthProvider;
 import com.selva.authportal.model.Role;
 import com.selva.authportal.model.Submission;
 import com.selva.authportal.model.User;
+import com.selva.authportal.dto.TeacherFeedbackResponse;
+import com.selva.authportal.model.TeacherFeedback;
 import com.selva.authportal.repository.SubmissionRepository;
+import com.selva.authportal.repository.TeacherFeedbackRepository;
 import com.selva.authportal.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -41,6 +44,9 @@ class AdminServiceTest {
     private SubmissionRepository submissionRepository;
 
     @Mock
+    private TeacherFeedbackRepository feedbackRepository;
+
+    @Mock
     private StorageService storageService;
 
     @Mock
@@ -53,7 +59,7 @@ class AdminServiceTest {
 
     @BeforeEach
     void setUp() {
-        adminService = new AdminService(userRepository, submissionRepository, storageService, passwordEncoder);
+        adminService = new AdminService(userRepository, submissionRepository, feedbackRepository, storageService, passwordEncoder);
 
         adminUser = User.builder()
                 .id(1L)
@@ -179,6 +185,7 @@ class AdminServiceTest {
         when(userRepository.countByRole(Role.TEACHER)).thenReturn(12L);
         when(userRepository.countByRole(Role.ADMIN)).thenReturn(3L);
         when(submissionRepository.count()).thenReturn(450L);
+        when(feedbackRepository.count()).thenReturn(42L);
 
         AdminStatsResponse stats = adminService.getSystemStats();
 
@@ -187,5 +194,67 @@ class AdminServiceTest {
         assertThat(stats.getTeacherCount()).isEqualTo(12L);
         assertThat(stats.getAdminCount()).isEqualTo(3L);
         assertThat(stats.getTotalSubmissions()).isEqualTo(450L);
+        assertThat(stats.getTotalFeedbacks()).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("Should return all feedbacks with optional filters")
+    void shouldReturnAllFeedbacksWithFilters() {
+        TeacherFeedback fb1 = TeacherFeedback.builder()
+                .id(1L)
+                .studentId("N210001")
+                .week("Week 1")
+                .reviewed(true)
+                .feedbackText("Excellent implementation")
+                .teacherEmail("faculty@rguktn.ac.in")
+                .updatedAt(java.time.Instant.now())
+                .build();
+
+        TeacherFeedback fb2 = TeacherFeedback.builder()
+                .id(2L)
+                .studentId("R210002")
+                .week("Week 2")
+                .reviewed(false)
+                .feedbackText("Incomplete code")
+                .teacherEmail("dean@rguktrkv.ac.in")
+                .updatedAt(java.time.Instant.now())
+                .build();
+
+        when(feedbackRepository.findAll()).thenReturn(List.of(fb1, fb2));
+
+        // Unfiltered
+        List<TeacherFeedbackResponse> all = adminService.getAllFeedbacks(null, null, null, null, null);
+        assertThat(all).hasSize(2);
+
+        // Filter by studentId
+        List<TeacherFeedbackResponse> filteredStudent = adminService.getAllFeedbacks("n210001", null, null, null, null);
+        assertThat(filteredStudent).hasSize(1);
+        assertThat(filteredStudent.get(0).getStudentId()).isEqualTo("N210001");
+
+        // Filter by reviewed
+        List<TeacherFeedbackResponse> filteredReviewed = adminService.getAllFeedbacks(null, null, null, true, null);
+        assertThat(filteredReviewed).hasSize(1);
+        assertThat(filteredReviewed.get(0).isReviewed()).isTrue();
+
+        // Search query
+        List<TeacherFeedbackResponse> searched = adminService.getAllFeedbacks(null, null, null, null, "excellent");
+        assertThat(searched).hasSize(1);
+        assertThat(searched.get(0).getFeedbackText()).contains("Excellent");
+    }
+
+    @Test
+    @DisplayName("Should delete feedback successfully")
+    void shouldDeleteFeedback() {
+        TeacherFeedback fb = TeacherFeedback.builder()
+                .id(10L)
+                .studentId("N210001")
+                .week("Week 1")
+                .build();
+
+        when(feedbackRepository.findById(10L)).thenReturn(Optional.of(fb));
+
+        adminService.deleteFeedback(10L);
+
+        verify(feedbackRepository).delete(fb);
     }
 }

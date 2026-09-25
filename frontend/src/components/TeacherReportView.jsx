@@ -37,6 +37,34 @@ export default function TeacherReportView({
   // Active view tab: 'evaluation' | 'side-by-side'
   const [activeTab, setActiveTab] = useState('evaluation');
 
+  // Side-by-Side comparison mode: 'ocr' | 'gemini' | 'ollama'
+  const [sideBySideMode, setSideBySideMode] = useState('ocr');
+
+  const hasProviderReport = (prov) => {
+    if (!report) return false;
+    const p = prov.toLowerCase();
+    if (report.availableProviders && report.availableProviders.some((x) => x.toLowerCase() === p)) {
+      return true;
+    }
+    if (report.reports && report.reports[p]) {
+      return true;
+    }
+    if (report.provider && report.provider.toLowerCase() === p) {
+      return true;
+    }
+    return false;
+  };
+
+  const handleSideBySideSelect = async (mode) => {
+    setSideBySideMode(mode);
+    if (mode !== 'ocr') {
+      const current = (selectedProvider || report?.provider || '').toLowerCase();
+      if (mode !== current) {
+        await handleSwitchProvider(mode);
+      }
+    }
+  };
+
   // Teacher feedback form state
   const [reviewed, setReviewed] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
@@ -225,6 +253,10 @@ export default function TeacherReportView({
   const handleSwitchProvider = async (prov) => {
     if (prov === selectedProvider || switchingProvider) return;
     const targetKey = prov.toLowerCase();
+
+    if (sideBySideMode !== 'ocr') {
+      setSideBySideMode(targetKey);
+    }
 
     // 1. Instant 0ms switch from bundled reports in memory (0 network requests, 0 unmounting)
     const bundledSub = report?.reports?.[targetKey];
@@ -614,6 +646,626 @@ export default function TeacherReportView({
   const programs = report.extraction?.programs || {};
   const programKeys = Object.keys(programs);
 
+  const renderEmptyProviderCard = (prov) => {
+    const isOllama = prov.toLowerCase() === 'ollama';
+    const isGemini = prov.toLowerCase() === 'gemini';
+    const label = isOllama ? 'Ollama' : isGemini ? 'Gemini' : prov;
+    const altProv = isOllama ? 'gemini' : 'ollama';
+    const altLabel = isOllama ? 'Gemini' : 'Ollama';
+    const icon = isOllama ? '🦙' : isGemini ? '🤖' : '📊';
+
+    return (
+      <div className="portal-card side-by-side-empty-report">
+        <div className="empty-state-icon">{icon}</div>
+        <h3>No {label} Evaluation Report</h3>
+        <p>
+          A {label} evaluation report has not been uploaded or generated for{' '}
+          <strong>{report.studentId} ({report.week})</strong>.
+        </p>
+        <p className="empty-state-hint">
+          Currently available: <strong>{report.availableProviders && report.availableProviders.length > 0 ? report.availableProviders.join(', ') : (report.provider || 'Gemini')}</strong>
+        </p>
+        <div style={{ marginTop: '1.25rem', display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {hasProviderReport(altProv) && (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => handleSideBySideSelect(altProv)}
+            >
+              <span>{isOllama ? '🤖' : '🦙'} View {altLabel} Report</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setSideBySideMode('ocr')}
+          >
+            <span>📄 View OCR Text</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderEvaluationContent = (isSideBySide = false) => {
+    return (
+      <>
+        {/* If in side-by-side mode, render a clean sub-header with provider & grade badge */}
+        {isSideBySide && (
+          <div className="side-by-side-report-meta-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', paddingBottom: '0.75rem', borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span className={`provider-model-badge ${report.provider || 'gemini'}`} style={{ margin: 0 }}>
+                {(report.provider || 'gemini').toLowerCase() === 'ollama' ? '🦙 Ollama' : '🤖 Gemini'}
+                {report.modelName ? ` • ${report.modelName}` : ''}
+              </span>
+              {report.grade && (
+                <span className={`academic-grade-badge ${report.grade.startsWith('A') || report.grade.startsWith('B') ? 'grade-good' : 'grade-fail'}`}>
+                  Grade: <strong>{report.grade}</strong>
+                </span>
+              )}
+              {report.status && (
+                <span className={`approval-status-badge ${report.status === 'Approved' ? 'approved' : 'revision'}`}>
+                  {report.status}
+                </span>
+              )}
+            </div>
+            <span className={`review-badge-header ${reviewed ? 'reviewed' : 'not-reviewed'}`} style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }}>
+              {reviewed ? 'Reviewed ✓' : 'Not Reviewed'}
+            </span>
+          </div>
+        )}
+
+        {/* Score & Assessment Banner with Marks Stepper */}
+        <div className="report-summary-banner">
+          <div className="report-score-box">
+            <span className="score-label">FINAL SCORE</span>
+
+            <div className="marks-stepper-widget">
+              <button
+                type="button"
+                className="marks-stepper-btn decrement"
+                onClick={() => handleFinalScoreStep(-1)}
+                disabled={scoreStatus === 'saving' || currentScore <= 0}
+                title="Decrease mark by 1"
+                aria-label="Decrease mark by 1"
+              >
+                −
+              </button>
+
+              <div className="marks-input-wrapper">
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="10"
+                  className="marks-stepper-input"
+                  value={scoreInput}
+                  onChange={handleScoreInputChange}
+                  onBlur={handleScoreInputBlur}
+                  onKeyDown={handleScoreInputKeyDown}
+                  disabled={scoreStatus === 'saving'}
+                  title="Directly enter marks (0 - 10)"
+                  aria-label="Awarded marks out of 10"
+                />
+                <span className="marks-stepper-scale">/ 10</span>
+              </div>
+
+              <button
+                type="button"
+                className="marks-stepper-btn increment"
+                onClick={() => handleFinalScoreStep(1)}
+                disabled={scoreStatus === 'saving' || currentScore >= 10}
+                title="Increase mark by 1"
+                aria-label="Increase mark by 1"
+              >
+                +
+              </button>
+            </div>
+
+            <div className="marks-total-raw-text">
+              Total Raw: {totalRaw}
+            </div>
+
+            {/* Real-time status indicator */}
+            {scoreStatus !== 'idle' && (
+              <div className="marks-status-area">
+                {scoreStatus === 'saving' && (
+                  <span className="marks-status-pill saving">Saving...</span>
+                )}
+                {scoreStatus === 'saved' && (
+                  <span className="marks-status-pill saved">Saved ✓</span>
+                )}
+                {scoreStatus === 'error' && (
+                  <span className="marks-status-pill error" title={scoreError}>
+                    Save Failed
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="report-assessment-box">
+            <span className="assessment-label">Overall Assessment</span>
+            <p className="assessment-text">
+              <MathText text={report.assessment || 'Unified evaluation completed.'} />
+            </p>
+          </div>
+        </div>
+
+        {/* Section Breakdown Steppers */}
+        <div className="score-breakdown-section">
+          <div className="score-breakdown-header">
+            <span className="score-breakdown-title">
+              <span className="breakdown-icon">📊</span> Section-by-Section Score Breakdown
+            </span>
+          </div>
+
+          <div className="score-cards-grid">
+            {/* Section 1: D1 */}
+            <div className="score-card">
+              <div className="score-card-header">
+                <span className="score-card-number">1</span>
+                <span className="score-card-label" title={sections.objective.label}>
+                  {sections.objective.label}
+                </span>
+              </div>
+              <div className="section-stepper-widget">
+                <button
+                  type="button"
+                  className="sec-step-btn decrement"
+                  onClick={() => handleSectionStep('objective', -0.5)}
+                  disabled={scoreStatus === 'saving' || sections.objective.score <= 0}
+                  title="Decrease mark by 0.5"
+                  aria-label="Decrease mark"
+                >
+                  −
+                </button>
+                <div className="sec-step-pill">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max={sections.objective.max}
+                    className="sec-step-input"
+                    value={sectionInputs.objective}
+                    onChange={(e) => handleSectionInputChange('objective', e.target.value)}
+                    onBlur={() => handleSectionInputBlur('objective')}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('objective')}
+                    disabled={scoreStatus === 'saving'}
+                    aria-label="Section 1 mark"
+                  />
+                  <span className="sec-step-denom">/ {sections.objective.max}</span>
+                </div>
+                <button
+                  type="button"
+                  className="sec-step-btn increment"
+                  onClick={() => handleSectionStep('objective', 0.5)}
+                  disabled={scoreStatus === 'saving' || sections.objective.score >= sections.objective.max}
+                  title="Increase mark by 0.5"
+                  aria-label="Increase mark"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Section 2: D2 */}
+            <div className="score-card">
+              <div className="score-card-header">
+                <span className="score-card-number">2</span>
+                <span className="score-card-label" title={sections.problem.label}>
+                  {sections.problem.label}
+                </span>
+              </div>
+              <div className="section-stepper-widget">
+                <button
+                  type="button"
+                  className="sec-step-btn decrement"
+                  onClick={() => handleSectionStep('problem', -0.5)}
+                  disabled={scoreStatus === 'saving' || sections.problem.score <= 0}
+                  title="Decrease mark by 0.5"
+                  aria-label="Decrease mark"
+                >
+                  −
+                </button>
+                <div className="sec-step-pill">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max={sections.problem.max}
+                    className="sec-step-input"
+                    value={sectionInputs.problem}
+                    onChange={(e) => handleSectionInputChange('problem', e.target.value)}
+                    onBlur={() => handleSectionInputBlur('problem')}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('problem')}
+                    disabled={scoreStatus === 'saving'}
+                    aria-label="Section 2 mark"
+                  />
+                  <span className="sec-step-denom">/ {sections.problem.max}</span>
+                </div>
+                <button
+                  type="button"
+                  className="sec-step-btn increment"
+                  onClick={() => handleSectionStep('problem', 0.5)}
+                  disabled={scoreStatus === 'saving' || sections.problem.score >= sections.problem.max}
+                  title="Increase mark by 0.5"
+                  aria-label="Increase mark"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Section 3: D3 */}
+            <div className="score-card">
+              <div className="score-card-header">
+                <span className="score-card-number">3</span>
+                <span className="score-card-label" title={sections.logic.label}>
+                  {sections.logic.label}
+                </span>
+              </div>
+              <div className="section-stepper-widget">
+                <button
+                  type="button"
+                  className="sec-step-btn decrement"
+                  onClick={() => handleSectionStep('logic', -0.5)}
+                  disabled={scoreStatus === 'saving' || sections.logic.score <= 0}
+                  title="Decrease mark by 0.5"
+                  aria-label="Decrease mark"
+                >
+                  −
+                </button>
+                <div className="sec-step-pill">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max={sections.logic.max}
+                    className="sec-step-input"
+                    value={sectionInputs.logic}
+                    onChange={(e) => handleSectionInputChange('logic', e.target.value)}
+                    onBlur={() => handleSectionInputBlur('logic')}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('logic')}
+                    disabled={scoreStatus === 'saving'}
+                    aria-label="Section 3 mark"
+                  />
+                  <span className="sec-step-denom">/ {sections.logic.max}</span>
+                </div>
+                <button
+                  type="button"
+                  className="sec-step-btn increment"
+                  onClick={() => handleSectionStep('logic', 0.5)}
+                  disabled={scoreStatus === 'saving' || sections.logic.score >= sections.logic.max}
+                  title="Increase mark by 0.5"
+                  aria-label="Increase mark"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Section 4: D4 */}
+            <div className="score-card">
+              <div className="score-card-header">
+                <span className="score-card-number">4</span>
+                <span className="score-card-label" title={sections.variables.label}>
+                  {sections.variables.label}
+                </span>
+              </div>
+              <div className="section-stepper-widget">
+                <button
+                  type="button"
+                  className="sec-step-btn decrement"
+                  onClick={() => handleSectionStep('variables', -0.5)}
+                  disabled={scoreStatus === 'saving' || sections.variables.score <= 0}
+                  title="Decrease mark by 0.5"
+                  aria-label="Decrease mark"
+                >
+                  −
+                </button>
+                <div className="sec-step-pill">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max={sections.variables.max}
+                    className="sec-step-input"
+                    value={sectionInputs.variables}
+                    onChange={(e) => handleSectionInputChange('variables', e.target.value)}
+                    onBlur={() => handleSectionInputBlur('variables')}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('variables')}
+                    disabled={scoreStatus === 'saving'}
+                    aria-label="Section 4 mark"
+                  />
+                  <span className="sec-step-denom">/ {sections.variables.max}</span>
+                </div>
+                <button
+                  type="button"
+                  className="sec-step-btn increment"
+                  onClick={() => handleSectionStep('variables', 0.5)}
+                  disabled={scoreStatus === 'saving' || sections.variables.score >= sections.variables.max}
+                  title="Increase mark by 0.5"
+                  aria-label="Increase mark"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Section 5: D5 */}
+            <div className="score-card">
+              <div className="score-card-header">
+                <span className="score-card-number">5</span>
+                <span className="score-card-label" title={sections.observation.label}>
+                  {sections.observation.label}
+                </span>
+              </div>
+              <div className="section-stepper-widget">
+                <button
+                  type="button"
+                  className="sec-step-btn decrement"
+                  onClick={() => handleSectionStep('observation', -0.5)}
+                  disabled={scoreStatus === 'saving' || sections.observation.score <= 0}
+                  title="Decrease mark by 0.5"
+                  aria-label="Decrease mark"
+                >
+                  −
+                </button>
+                <div className="sec-step-pill">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max={sections.observation.max}
+                    className="sec-step-input"
+                    value={sectionInputs.observation}
+                    onChange={(e) => handleSectionInputChange('observation', e.target.value)}
+                    onBlur={() => handleSectionInputBlur('observation')}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('observation')}
+                    disabled={scoreStatus === 'saving'}
+                    aria-label="Section 5 mark"
+                  />
+                  <span className="sec-step-denom">/ {sections.observation.max}</span>
+                </div>
+                <button
+                  type="button"
+                  className="sec-step-btn increment"
+                  onClick={() => handleSectionStep('observation', 0.5)}
+                  disabled={scoreStatus === 'saving' || sections.observation.score >= sections.observation.max}
+                  title="Increase mark by 0.5"
+                  aria-label="Increase mark"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Schema 2.0 Strengths & Recommendations Card */}
+        {((report.strengths && report.strengths.length > 0) || (report.recommendations && report.recommendations.length > 0)) && (
+          <div className="report-insights-grid">
+            {report.strengths && report.strengths.length > 0 && (
+              <div className="insight-card strengths-card">
+                <h4>💪 Key Strengths</h4>
+                <ul>
+                  {report.strengths.map((str, idx) => (
+                    <li key={idx}><MathText text={str} /></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {report.recommendations && report.recommendations.length > 0 && (
+              <div className="insight-card recommendations-card">
+                <h4>🎯 Recommendations & Improvements</h4>
+                <ul>
+                  {report.recommendations.map((rec, idx) => (
+                    <li key={idx}><MathText text={rec} /></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Schema 2.0 Criteria Scores Justification Section */}
+        {report.criteriaScores && Object.keys(report.criteriaScores).length > 0 && (
+          <div className="report-criteria-block">
+            <h3 className="section-title">📐 Criteria Assessment & Justifications</h3>
+            <div className="criteria-cards-grid">
+              {Object.entries(report.criteriaScores).map(([dKey, dVal]) => (
+                <div key={dKey} className="criterion-detail-card">
+                  <div className="criterion-card-header">
+                    <span className="criterion-key">{dKey}</span>
+                    <span className="criterion-name">{dVal.name || dKey}</span>
+                    <span className="criterion-score-badge">
+                      {dVal.score !== undefined ? dVal.score : '—'} / {dVal.max_score || 2.0}
+                    </span>
+                  </div>
+                  {dVal.justification && (
+                    <p className="criterion-justification"><MathText text={dVal.justification} /></p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Detailed Program / Markdown Analysis */}
+        <div className="report-section-block">
+          <h3 className="section-title">
+            🔬 Detailed Program Analysis ({programKeys.length > 0 ? `${programKeys.length} Assigned Programs` : 'Evaluation Markdown'})
+          </h3>
+
+          {programKeys.length > 0 ? (
+            <div className="program-list">
+              {programKeys.map((pKey) => {
+                const prog = programs[pKey];
+                return (
+                  <div key={pKey} className="program-item-card">
+                    <div className="program-header">
+                      <span className="program-tag">{pKey}</span>
+                      <span className={`program-status-pill ${prog.status || 'detected'}`}>
+                        {prog.status || 'detected'}
+                      </span>
+                      {prog.source_pages && (
+                        <span className="program-pages">
+                          Pages: {prog.source_pages.join(', ')}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="program-details-grid">
+                      {prog.problem_understanding && (
+                        <div className="program-field">
+                          <strong>Problem Understanding:</strong>
+                          <p><MathText text={prog.problem_understanding} /></p>
+                        </div>
+                      )}
+
+                      {prog.logic_approach && (
+                        <div className="program-field">
+                          <strong>Logic / Approach Used:</strong>
+                          <p><MathText text={prog.logic_approach} /></p>
+                        </div>
+                      )}
+
+                      {prog.important_variables && prog.important_variables.length > 0 && (
+                        <div className="program-field">
+                          <strong>Important Variables:</strong>
+                          <div className="variables-table-wrap">
+                            <table className="mini-table">
+                              <thead>
+                                <tr>
+                                  <th>Variable</th>
+                                  <th>Purpose</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {prog.important_variables.map((v, idx) => (
+                                  <tr key={idx}>
+                                    <td><code>{v.variable}</code></td>
+                                    <td><MathText text={v.purpose} /></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {prog.what_i_observed && (
+                        <div className="program-field">
+                          <strong>What I Observed:</strong>
+                          <p><MathText text={prog.what_i_observed} /></p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : report.rawEvaluationMarkdown ? (
+            <MarkdownReportRenderer content={report.rawEvaluationMarkdown} />
+          ) : (
+            <p style={{ color: '#64748b' }}>No program-specific analysis details available.</p>
+          )}
+        </div>
+
+        {/* Teacher Feedback Section */}
+        <div className="report-feedback-section">
+          <div className="feedback-section-header">
+            <h3>📝 Teacher Feedback</h3>
+            <p className="feedback-hint">
+              Review status and feedback are stored strictly for <strong>{report.studentId} + {report.week}</strong> and do NOT alter the AI evaluation scores.
+            </p>
+          </div>
+
+          {saveSuccess && (
+            <div className="alert-message success">
+              <span>✅</span>
+              <div>Teacher feedback saved successfully for {report.studentId} ({report.week})!</div>
+            </div>
+          )}
+
+          {saveError && (
+            <div className="alert-message error">
+              <span>⚠️</span>
+              <div>{saveError}</div>
+            </div>
+          )}
+
+          <form onSubmit={handleSaveFeedback} className="feedback-form">
+            <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+              <label className="form-label" style={{ marginBottom: '0.5rem' }}>
+                Reviewed?
+              </label>
+              <div className="review-toggle-buttons">
+                <button
+                  type="button"
+                  className={`btn-review-toggle ${reviewed ? 'selected-yes' : ''}`}
+                  onClick={() => setReviewed(true)}
+                >
+                  ✓ Yes
+                </button>
+                <button
+                  type="button"
+                  className={`btn-review-toggle ${!reviewed ? 'selected-no' : ''}`}
+                  onClick={() => setReviewed(false)}
+                >
+                  ✕ No
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+              <label className="form-label" htmlFor={isSideBySide ? "feedbackTextInput-sbs" : "feedbackTextInput"}>
+                Feedback:
+              </label>
+              <textarea
+                id={isSideBySide ? "feedbackTextInput-sbs" : "feedbackTextInput"}
+                className="form-input feedback-textarea"
+                rows="4"
+                placeholder="Enter feedback for this student..."
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={savingFeedback}
+                >
+                  {savingFeedback ? '💾 Saving...' : 'Save Feedback'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={onBack}
+                >
+                  Back to Table
+                </button>
+              </div>
+              <button
+                type="button"
+                className="btn-delete-report-danger"
+                onClick={handleDeleteReport}
+                disabled={deleting}
+              >
+                <span>🗑️</span> {deleting ? 'Deleting...' : 'Delete Report'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </>
+    );
+  };
+
   return (
     <div className="teacher-report-container">
       {/* Top Navigation Bar */}
@@ -686,7 +1338,7 @@ export default function TeacherReportView({
         </div>
 
         {/* Report Selector: Select report to view when multiple exist (only on Evaluation tab) */}
-        {activeTab !== 'side-by-side' && report.availableProviders && report.availableProviders.length > 1 && (
+        {activeTab === 'evaluation' && report.availableProviders && report.availableProviders.length > 1 && (
           <div className="report-select-model-group">
             <span className="report-select-model-label">Select Report:</span>
             <div className="report-select-model-pills">
@@ -703,7 +1355,7 @@ export default function TeacherReportView({
                     disabled={loading || switchingProvider}
                     title={`View ${isGemini ? 'Gemini' : isOllama ? 'Ollama' : prov} evaluation report`}
                   >
-                    <span>{isGemini ? 'Gemini' : isOllama ? 'Ollama' : prov}</span>
+                    <span>{isGemini ? '🤖 Gemini' : isOllama ? '🦙 Ollama' : prov}</span>
                   </button>
                 );
               })}
@@ -712,16 +1364,68 @@ export default function TeacherReportView({
         )}
       </div>
 
-      {/* Side-by-Side View (OCR Extracted Text + Student Uploaded PDF) */}
+      {/* Side-by-Side View (OCR Extracted Text OR Ollama Report OR Gemini Report + Student Uploaded PDF) */}
       {activeTab === 'side-by-side' && (
         <div className="report-side-by-side-layout">
           <div className="side-by-side-column ocr-column">
-            <ExtractedTextViewer
-              studentId={report.studentId}
-              week={report.week}
-              report={report}
-            />
+            {/* Left Column Header with 3-way toggle */}
+            <div className="side-by-side-pane-header">
+              <div className="side-by-side-pane-title">
+                {sideBySideMode === 'ocr' && <><span>📄</span> OCR Extracted Text</>}
+                {sideBySideMode === 'gemini' && <><span>🤖</span> Gemini Evaluation Report</>}
+                {sideBySideMode === 'ollama' && <><span>🦙</span> Ollama Evaluation Report</>}
+                {sideBySideMode !== 'ocr' && sideBySideMode !== 'gemini' && sideBySideMode !== 'ollama' && (
+                  <><span>📊</span> {sideBySideMode.toUpperCase()} Report</>
+                )}
+              </div>
+              <div className="side-by-side-pane-toggle-pills" role="tablist">
+                <button
+                  type="button"
+                  className={`pane-toggle-pill ${sideBySideMode === 'ocr' ? 'active' : ''}`}
+                  onClick={() => setSideBySideMode('ocr')}
+                  title="View OCR extracted text alongside PDF"
+                >
+                  <span>📄 OCR Text</span>
+                </button>
+                <button
+                  type="button"
+                  className={`pane-toggle-pill ${sideBySideMode === 'gemini' ? 'active' : ''}`}
+                  onClick={() => handleSideBySideSelect('gemini')}
+                  disabled={loading || switchingProvider}
+                  title="View Gemini evaluation report alongside PDF"
+                >
+                  <span>🤖 Gemini Report</span>
+                </button>
+                <button
+                  type="button"
+                  className={`pane-toggle-pill ${sideBySideMode === 'ollama' ? 'active' : ''}`}
+                  onClick={() => handleSideBySideSelect('ollama')}
+                  disabled={loading || switchingProvider}
+                  title="View Ollama evaluation report alongside PDF"
+                >
+                  <span>🦙 Ollama Report</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Pane Content based on selection */}
+            {sideBySideMode === 'ocr' ? (
+              <ExtractedTextViewer
+                studentId={report.studentId}
+                week={report.week}
+                report={report}
+              />
+            ) : sideBySideMode === 'ollama' && !hasProviderReport('ollama') ? (
+              renderEmptyProviderCard('ollama')
+            ) : sideBySideMode === 'gemini' && !hasProviderReport('gemini') ? (
+              renderEmptyProviderCard('gemini')
+            ) : (
+              <div className="side-by-side-report-scroll-view">
+                {renderEvaluationContent(true)}
+              </div>
+            )}
           </div>
+
           <div className="side-by-side-column pdf-column">
             <UploadedPdfViewer
               studentId={report.studentId}
@@ -735,553 +1439,7 @@ export default function TeacherReportView({
       {/* Evaluation Report Card */}
       {activeTab === 'evaluation' && (
         <div className="report-main-card">
-          {/* Score & Assessment Banner with Marks Stepper */}
-          <div className="report-summary-banner">
-            <div className="report-score-box">
-              <span className="score-label">FINAL SCORE</span>
-
-              <div className="marks-stepper-widget">
-                <button
-                  type="button"
-                  className="marks-stepper-btn decrement"
-                  onClick={() => handleFinalScoreStep(-1)}
-                  disabled={scoreStatus === 'saving' || currentScore <= 0}
-                  title="Decrease mark by 1"
-                  aria-label="Decrease mark by 1"
-                >
-                  −
-                </button>
-
-                <div className="marks-input-wrapper">
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    max="10"
-                    className="marks-stepper-input"
-                    value={scoreInput}
-                    onChange={handleScoreInputChange}
-                    onBlur={handleScoreInputBlur}
-                    onKeyDown={handleScoreInputKeyDown}
-                    disabled={scoreStatus === 'saving'}
-                    title="Directly enter marks (0 - 10)"
-                    aria-label="Awarded marks out of 10"
-                  />
-                  <span className="marks-stepper-scale">/ 10</span>
-                </div>
-
-                <button
-                  type="button"
-                  className="marks-stepper-btn increment"
-                  onClick={() => handleFinalScoreStep(1)}
-                  disabled={scoreStatus === 'saving' || currentScore >= 10}
-                  title="Increase mark by 1"
-                  aria-label="Increase mark by 1"
-                >
-                  +
-                </button>
-              </div>
-
-              <div className="marks-total-raw-text">
-                Total Raw: {totalRaw}
-              </div>
-
-              {/* Real-time status indicator */}
-              {scoreStatus !== 'idle' && (
-                <div className="marks-status-area">
-                  {scoreStatus === 'saving' && (
-                    <span className="marks-status-pill saving">Saving...</span>
-                  )}
-                  {scoreStatus === 'saved' && (
-                    <span className="marks-status-pill saved">Saved ✓</span>
-                  )}
-                  {scoreStatus === 'error' && (
-                    <span className="marks-status-pill error" title={scoreError}>
-                      Save Failed
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="report-assessment-box">
-              <span className="assessment-label">Overall Assessment</span>
-              <p className="assessment-text">
-                <MathText text={report.assessment || 'Unified evaluation completed.'} />
-              </p>
-            </div>
-          </div>
-
-          {/* Section Breakdown Steppers */}
-          <div className="score-breakdown-section">
-            <div className="score-breakdown-header">
-              <span className="score-breakdown-title">
-                <span className="breakdown-icon">📊</span> Section-by-Section Score Breakdown
-              </span>
-            </div>
-
-            <div className="score-cards-grid">
-              {/* Section 1: D1 */}
-              <div className="score-card">
-                <div className="score-card-header">
-                  <span className="score-card-number">1</span>
-                  <span className="score-card-label" title={sections.objective.label}>
-                    {sections.objective.label}
-                  </span>
-                </div>
-                <div className="section-stepper-widget">
-                  <button
-                    type="button"
-                    className="sec-step-btn decrement"
-                    onClick={() => handleSectionStep('objective', -0.5)}
-                    disabled={scoreStatus === 'saving' || sections.objective.score <= 0}
-                    title="Decrease mark by 0.5"
-                    aria-label="Decrease mark"
-                  >
-                    −
-                  </button>
-                  <div className="sec-step-pill">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max={sections.objective.max}
-                      className="sec-step-input"
-                      value={sectionInputs.objective}
-                      onChange={(e) => handleSectionInputChange('objective', e.target.value)}
-                      onBlur={() => handleSectionInputBlur('objective')}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('objective')}
-                      disabled={scoreStatus === 'saving'}
-                      aria-label="Section 1 mark"
-                    />
-                    <span className="sec-step-denom">/ {sections.objective.max}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="sec-step-btn increment"
-                    onClick={() => handleSectionStep('objective', 0.5)}
-                    disabled={scoreStatus === 'saving' || sections.objective.score >= sections.objective.max}
-                    title="Increase mark by 0.5"
-                    aria-label="Increase mark"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Section 2: D2 */}
-              <div className="score-card">
-                <div className="score-card-header">
-                  <span className="score-card-number">2</span>
-                  <span className="score-card-label" title={sections.problem.label}>
-                    {sections.problem.label}
-                  </span>
-                </div>
-                <div className="section-stepper-widget">
-                  <button
-                    type="button"
-                    className="sec-step-btn decrement"
-                    onClick={() => handleSectionStep('problem', -0.5)}
-                    disabled={scoreStatus === 'saving' || sections.problem.score <= 0}
-                    title="Decrease mark by 0.5"
-                    aria-label="Decrease mark"
-                  >
-                    −
-                  </button>
-                  <div className="sec-step-pill">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max={sections.problem.max}
-                      className="sec-step-input"
-                      value={sectionInputs.problem}
-                      onChange={(e) => handleSectionInputChange('problem', e.target.value)}
-                      onBlur={() => handleSectionInputBlur('problem')}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('problem')}
-                      disabled={scoreStatus === 'saving'}
-                      aria-label="Section 2 mark"
-                    />
-                    <span className="sec-step-denom">/ {sections.problem.max}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="sec-step-btn increment"
-                    onClick={() => handleSectionStep('problem', 0.5)}
-                    disabled={scoreStatus === 'saving' || sections.problem.score >= sections.problem.max}
-                    title="Increase mark by 0.5"
-                    aria-label="Increase mark"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Section 3: D3 */}
-              <div className="score-card">
-                <div className="score-card-header">
-                  <span className="score-card-number">3</span>
-                  <span className="score-card-label" title={sections.logic.label}>
-                    {sections.logic.label}
-                  </span>
-                </div>
-                <div className="section-stepper-widget">
-                  <button
-                    type="button"
-                    className="sec-step-btn decrement"
-                    onClick={() => handleSectionStep('logic', -0.5)}
-                    disabled={scoreStatus === 'saving' || sections.logic.score <= 0}
-                    title="Decrease mark by 0.5"
-                    aria-label="Decrease mark"
-                  >
-                    −
-                  </button>
-                  <div className="sec-step-pill">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max={sections.logic.max}
-                      className="sec-step-input"
-                      value={sectionInputs.logic}
-                      onChange={(e) => handleSectionInputChange('logic', e.target.value)}
-                      onBlur={() => handleSectionInputBlur('logic')}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('logic')}
-                      disabled={scoreStatus === 'saving'}
-                      aria-label="Section 3 mark"
-                    />
-                    <span className="sec-step-denom">/ {sections.logic.max}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="sec-step-btn increment"
-                    onClick={() => handleSectionStep('logic', 0.5)}
-                    disabled={scoreStatus === 'saving' || sections.logic.score >= sections.logic.max}
-                    title="Increase mark by 0.5"
-                    aria-label="Increase mark"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Section 4: D4 */}
-              <div className="score-card">
-                <div className="score-card-header">
-                  <span className="score-card-number">4</span>
-                  <span className="score-card-label" title={sections.variables.label}>
-                    {sections.variables.label}
-                  </span>
-                </div>
-                <div className="section-stepper-widget">
-                  <button
-                    type="button"
-                    className="sec-step-btn decrement"
-                    onClick={() => handleSectionStep('variables', -0.5)}
-                    disabled={scoreStatus === 'saving' || sections.variables.score <= 0}
-                    title="Decrease mark by 0.5"
-                    aria-label="Decrease mark"
-                  >
-                    −
-                  </button>
-                  <div className="sec-step-pill">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max={sections.variables.max}
-                      className="sec-step-input"
-                      value={sectionInputs.variables}
-                      onChange={(e) => handleSectionInputChange('variables', e.target.value)}
-                      onBlur={() => handleSectionInputBlur('variables')}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('variables')}
-                      disabled={scoreStatus === 'saving'}
-                      aria-label="Section 4 mark"
-                    />
-                    <span className="sec-step-denom">/ {sections.variables.max}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="sec-step-btn increment"
-                    onClick={() => handleSectionStep('variables', 0.5)}
-                    disabled={scoreStatus === 'saving' || sections.variables.score >= sections.variables.max}
-                    title="Increase mark by 0.5"
-                    aria-label="Increase mark"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Section 5: D5 */}
-              <div className="score-card">
-                <div className="score-card-header">
-                  <span className="score-card-number">5</span>
-                  <span className="score-card-label" title={sections.observation.label}>
-                    {sections.observation.label}
-                  </span>
-                </div>
-                <div className="section-stepper-widget">
-                  <button
-                    type="button"
-                    className="sec-step-btn decrement"
-                    onClick={() => handleSectionStep('observation', -0.5)}
-                    disabled={scoreStatus === 'saving' || sections.observation.score <= 0}
-                    title="Decrease mark by 0.5"
-                    aria-label="Decrease mark"
-                  >
-                    −
-                  </button>
-                  <div className="sec-step-pill">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max={sections.observation.max}
-                      className="sec-step-input"
-                      value={sectionInputs.observation}
-                      onChange={(e) => handleSectionInputChange('observation', e.target.value)}
-                      onBlur={() => handleSectionInputBlur('observation')}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSectionInputBlur('observation')}
-                      disabled={scoreStatus === 'saving'}
-                      aria-label="Section 5 mark"
-                    />
-                    <span className="sec-step-denom">/ {sections.observation.max}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="sec-step-btn increment"
-                    onClick={() => handleSectionStep('observation', 0.5)}
-                    disabled={scoreStatus === 'saving' || sections.observation.score >= sections.observation.max}
-                    title="Increase mark by 0.5"
-                    aria-label="Increase mark"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Schema 2.0 Strengths & Recommendations Card */}
-          {((report.strengths && report.strengths.length > 0) || (report.recommendations && report.recommendations.length > 0)) && (
-            <div className="report-insights-grid">
-              {report.strengths && report.strengths.length > 0 && (
-                <div className="insight-card strengths-card">
-                  <h4>💪 Key Strengths</h4>
-                  <ul>
-                    {report.strengths.map((str, idx) => (
-                      <li key={idx}><MathText text={str} /></li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {report.recommendations && report.recommendations.length > 0 && (
-                <div className="insight-card recommendations-card">
-                  <h4>🎯 Recommendations & Improvements</h4>
-                  <ul>
-                    {report.recommendations.map((rec, idx) => (
-                      <li key={idx}><MathText text={rec} /></li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Schema 2.0 Criteria Scores Justification Section */}
-          {report.criteriaScores && Object.keys(report.criteriaScores).length > 0 && (
-            <div className="report-criteria-block">
-              <h3 className="section-title">📐 Criteria Assessment & Justifications</h3>
-              <div className="criteria-cards-grid">
-                {Object.entries(report.criteriaScores).map(([dKey, dVal]) => (
-                  <div key={dKey} className="criterion-detail-card">
-                    <div className="criterion-card-header">
-                      <span className="criterion-key">{dKey}</span>
-                      <span className="criterion-name">{dVal.name || dKey}</span>
-                      <span className="criterion-score-badge">
-                        {dVal.score !== undefined ? dVal.score : '—'} / {dVal.max_score || 2.0}
-                      </span>
-                    </div>
-                    {dVal.justification && (
-                      <p className="criterion-justification"><MathText text={dVal.justification} /></p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Detailed Program / Markdown Analysis */}
-          <div className="report-section-block">
-            <h3 className="section-title">
-              🔬 Detailed Program Analysis ({programKeys.length > 0 ? `${programKeys.length} Assigned Programs` : 'Evaluation Markdown'})
-            </h3>
-
-            {programKeys.length > 0 ? (
-              <div className="program-list">
-                {programKeys.map((pKey) => {
-                  const prog = programs[pKey];
-                  return (
-                    <div key={pKey} className="program-item-card">
-                      <div className="program-header">
-                        <span className="program-tag">{pKey}</span>
-                        <span className={`program-status-pill ${prog.status || 'detected'}`}>
-                          {prog.status || 'detected'}
-                        </span>
-                        {prog.source_pages && (
-                          <span className="program-pages">
-                            Pages: {prog.source_pages.join(', ')}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="program-details-grid">
-                        {prog.problem_understanding && (
-                          <div className="program-field">
-                            <strong>Problem Understanding:</strong>
-                            <p><MathText text={prog.problem_understanding} /></p>
-                          </div>
-                        )}
-
-                        {prog.logic_approach && (
-                          <div className="program-field">
-                            <strong>Logic / Approach Used:</strong>
-                            <p><MathText text={prog.logic_approach} /></p>
-                          </div>
-                        )}
-
-                        {prog.important_variables && prog.important_variables.length > 0 && (
-                          <div className="program-field">
-                            <strong>Important Variables:</strong>
-                            <div className="variables-table-wrap">
-                              <table className="mini-table">
-                                <thead>
-                                  <tr>
-                                    <th>Variable</th>
-                                    <th>Purpose</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {prog.important_variables.map((v, idx) => (
-                                    <tr key={idx}>
-                                      <td><code>{v.variable}</code></td>
-                                      <td><MathText text={v.purpose} /></td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        )}
-
-                        {prog.what_i_observed && (
-                          <div className="program-field">
-                            <strong>What I Observed:</strong>
-                            <p><MathText text={prog.what_i_observed} /></p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : report.rawEvaluationMarkdown ? (
-              <MarkdownReportRenderer content={report.rawEvaluationMarkdown} />
-            ) : (
-              <p style={{ color: '#64748b' }}>No program-specific analysis details available.</p>
-            )}
-          </div>
-
-          {/* Teacher Feedback Section */}
-          <div className="report-feedback-section">
-            <div className="feedback-section-header">
-              <h3>📝 Teacher Feedback</h3>
-              <p className="feedback-hint">
-                Review status and feedback are stored strictly for <strong>{report.studentId} + {report.week}</strong> and do NOT alter the AI evaluation scores.
-              </p>
-            </div>
-
-            {saveSuccess && (
-              <div className="alert-message success">
-                <span>✅</span>
-                <div>Teacher feedback saved successfully for {report.studentId} ({report.week})!</div>
-              </div>
-            )}
-
-            {saveError && (
-              <div className="alert-message error">
-                <span>⚠️</span>
-                <div>{saveError}</div>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveFeedback} className="feedback-form">
-              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
-                <label className="form-label" style={{ marginBottom: '0.5rem' }}>
-                  Reviewed?
-                </label>
-                <div className="review-toggle-buttons">
-                  <button
-                    type="button"
-                    className={`btn-review-toggle ${reviewed ? 'selected-yes' : ''}`}
-                    onClick={() => setReviewed(true)}
-                  >
-                    ✓ Yes
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn-review-toggle ${!reviewed ? 'selected-no' : ''}`}
-                    onClick={() => setReviewed(false)}
-                  >
-                    ✕ No
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="form-label" htmlFor="feedbackTextInput">
-                  Feedback:
-                </label>
-                <textarea
-                  id="feedbackTextInput"
-                  className="form-input feedback-textarea"
-                  rows="4"
-                  placeholder="Enter feedback for this student..."
-                  value={feedbackText}
-                  onChange={(e) => setFeedbackText(e.target.value)}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                  <button
-                    type="submit"
-                    className="btn-primary"
-                    disabled={savingFeedback}
-                  >
-                    {savingFeedback ? '💾 Saving...' : 'Save Feedback'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={onBack}
-                  >
-                    Back to Table
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="btn-delete-report-danger"
-                  onClick={handleDeleteReport}
-                  disabled={deleting}
-                >
-                  <span>🗑️</span> {deleting ? 'Deleting...' : 'Delete Report'}
-                </button>
-              </div>
-            </form>
-          </div>
+          {renderEvaluationContent(false)}
         </div>
       )}
     </div>

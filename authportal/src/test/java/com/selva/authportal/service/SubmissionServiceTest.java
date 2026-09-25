@@ -58,7 +58,7 @@ class SubmissionServiceTest {
         storageService = localStore;
 
         submissionService = new SubmissionService(submissionRepository, submissionFileRepository, storageService);
-        ReflectionTestUtils.setField(submissionService, "studentPatternRegex", "^[Nn](\\d{6})@rguktn\\.ac\\.in$");
+        ReflectionTestUtils.setField(submissionService, "studentPatternRegex", "^[A-Za-z](\\d{6})@(rguktn\\.ac\\.in|rguktrkv\\.ac\\.in|rguktong\\.ac\\.in|rguktsklm\\.ac\\.in|rgukt\\.in)$");
 
         studentUser = User.builder()
                 .id(1L)
@@ -80,19 +80,27 @@ class SubmissionServiceTest {
     }
 
     @Test
-    @DisplayName("Should derive student ID correctly from institutional email")
+    @DisplayName("Should derive student ID correctly from institutional email across all campuses")
     void shouldDeriveStudentIdFromEmail() {
         assertThat(submissionService.deriveDefaultStudentId("n210001@rguktn.ac.in")).isEqualTo("N210001");
         assertThat(submissionService.deriveDefaultStudentId("N220999@rguktn.ac.in")).isEqualTo("N220999");
+        assertThat(submissionService.deriveDefaultStudentId("r210001@rguktrkv.ac.in")).isEqualTo("R210001");
+        assertThat(submissionService.deriveDefaultStudentId("o210001@rguktong.ac.in")).isEqualTo("O210001");
+        assertThat(submissionService.deriveDefaultStudentId("s210001@rguktsklm.ac.in")).isEqualTo("S210001");
+        assertThat(submissionService.deriveDefaultStudentId("r210001@rgukt.in")).isEqualTo("R210001");
         assertThat(submissionService.deriveDefaultStudentId("faculty@rguktn.ac.in")).isEqualTo("");
         assertThat(submissionService.deriveDefaultStudentId("")).isEqualTo("");
     }
 
     @Test
-    @DisplayName("Should validate and normalize student ID")
+    @DisplayName("Should validate and normalize student ID across all campuses")
     void shouldValidateAndNormalizeStudentId() {
         assertThat(submissionService.validateAndNormalizeStudentId("n210001")).isEqualTo("N210001");
         assertThat(submissionService.validateAndNormalizeStudentId("N210001")).isEqualTo("N210001");
+        assertThat(submissionService.validateAndNormalizeStudentId("r210001")).isEqualTo("R210001");
+        assertThat(submissionService.validateAndNormalizeStudentId("R210001")).isEqualTo("R210001");
+        assertThat(submissionService.validateAndNormalizeStudentId("o210001")).isEqualTo("O210001");
+        assertThat(submissionService.validateAndNormalizeStudentId("s210001")).isEqualTo("S210001");
 
         assertThatThrownBy(() -> submissionService.validateAndNormalizeStudentId("invalid"))
                 .isInstanceOf(InvalidSubmissionException.class);

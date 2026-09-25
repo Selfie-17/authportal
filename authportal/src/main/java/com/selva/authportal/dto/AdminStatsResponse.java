@@ -17,4 +17,5 @@ public class AdminStatsResponse {
     private long teacherCount;
     private long adminCount;
     private long totalSubmissions;
+    private long totalFeedbacks;
 }

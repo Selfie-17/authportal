@@ -8,18 +8,29 @@ import Pagination from '../components/admin/Pagination';
 import { adminService } from '../services/adminService';
 import { authService } from '../services/authService';
 import { evaluationService } from '../services/evaluationService';
+import { submissionService } from '../services/submissionService';
 import { extractStudentIdFromEmail } from '../utils/studentDataHelper';
 import '../styles/portal.css';
 
 export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions' | 'evaluations'
+  const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions' | 'feedbacks'
   const [stats, setStats] = useState({
     totalUsers: 0,
     studentCount: 0,
     teacherCount: 0,
     adminCount: 0,
     totalSubmissions: 0,
+    totalFeedbacks: 0,
   });
+
+  // Feedback Logs State
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [fbQuery, setFbQuery] = useState('');
+  const [fbWeek, setFbWeek] = useState('');
+  const [fbReviewed, setFbReviewed] = useState('');
+  const [fbLoading, setFbLoading] = useState(false);
+  const [viewingFeedback, setViewingFeedback] = useState(null);
+  const [deletingFbId, setDeletingFbId] = useState(null);
 
   // Users State
   const [users, setUsers] = useState([]);
@@ -47,6 +58,7 @@ export default function AdminDashboardPage() {
   const [subSection, setSubSection] = useState('');
   const [subStudentId, setSubStudentId] = useState('');
   const [subLoading, setSubLoading] = useState(false);
+  const [downloadingZip, setDownloadingZip] = useState(false);
 
   // Evaluation JSON Upload State (Admin Only)
   const [uploadingJson, setUploadingJson] = useState(false);
@@ -101,6 +113,75 @@ export default function AdminDashboardPage() {
     }
   }, [subWeek, subYear, subSection, subStudentId]);
 
+  const loadFeedbacks = useCallback(async () => {
+    setFbLoading(true);
+    try {
+      const data = await adminService.getFeedbacks({
+        query: fbQuery || undefined,
+        week: fbWeek || undefined,
+        reviewed: fbReviewed !== '' ? fbReviewed : undefined,
+      });
+      setFeedbacks(data);
+    } catch (err) {
+      setBannerErr(err.message || 'Failed to load teacher feedback logs.');
+    } finally {
+      setFbLoading(false);
+    }
+  }, [fbQuery, fbWeek, fbReviewed]);
+
+
+  const handleDownloadZip = async () => {
+    if (!subWeek) {
+      alert('Please select a specific week from the filters to download the batch ZIP archive.');
+      return;
+    }
+
+    try {
+      setDownloadingZip(true);
+      await submissionService.downloadSubmissionsZip({
+        week: Number(subWeek),
+        year: subYear || undefined,
+        section: subSection ? Number(subSection) : undefined,
+      });
+    } catch (err) {
+      alert('Failed to download ZIP: ' + err.message);
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
+
+  const handleDownloadSingleFile = async (submissionId, fileId, filename) => {
+    try {
+      await submissionService.downloadFile(submissionId, fileId, filename);
+    } catch (err) {
+      alert('Failed to download file: ' + err.message);
+    }
+  };
+
+  const suggestedZipName = subWeek
+    ? (subSection ? `week-${subWeek}-sec-${subSection}.zip` : `week-${subWeek}.zip`)
+    : 'Select week for ZIP';
+
+  const handleDeleteFeedback = async (id, studentId, week) => {
+    if (!window.confirm(`Are you sure you want to delete the feedback record for ${studentId} (${week})?`)) {
+      return;
+    }
+    setDeletingFbId(id);
+    try {
+      await adminService.deleteFeedback(id);
+      setBannerMsg(`Teacher feedback for ${studentId} (${week}) deleted successfully.`);
+      await loadFeedbacks();
+      await loadStats();
+      if (viewingFeedback?.id === id) {
+        setViewingFeedback(null);
+      }
+    } catch (err) {
+      setBannerErr(err.message || 'Failed to delete feedback record.');
+    } finally {
+      setDeletingFbId(null);
+    }
+  };
+
   useEffect(() => {
     loadStats();
   }, [loadStats]);
@@ -108,10 +189,12 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (activeTab === 'users') {
       loadUsers();
-    } else {
+    } else if (activeTab === 'submissions') {
       loadSubmissions();
+    } else if (activeTab === 'feedbacks') {
+      loadFeedbacks();
     }
-  }, [activeTab, loadUsers, loadSubmissions]);
+  }, [activeTab, loadUsers, loadSubmissions, loadFeedbacks]);
 
   // Client-side pagination slicing
   const paginatedUsers = useMemo(() => {
@@ -354,6 +437,13 @@ export default function AdminDashboardPage() {
             subtitle="C-program submissions"
             accentColor="#f59e0b"
           />
+          <AdminStatCard
+            icon="📝"
+            label="Feedbacks Given"
+            value={stats.totalFeedbacks || 0}
+            subtitle="Teacher reviews & remarks"
+            accentColor="#06b6d4"
+          />
         </div>
 
         {/* Modern Tabs Navigation */}
@@ -371,8 +461,16 @@ export default function AdminDashboardPage() {
             className={`admin-tab-btn ${activeTab === 'submissions' ? 'active' : ''}`}
             onClick={() => setActiveTab('submissions')}
           >
-            <span>All Submissions</span>
+            <span>📁 Student File Submissions & Batch ZIP</span>
             <span className="admin-tab-badge">{stats.totalSubmissions}</span>
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${activeTab === 'feedbacks' ? 'active' : ''}`}
+            onClick={() => setActiveTab('feedbacks')}
+          >
+            <span>Teacher Feedback Logs</span>
+            <span className="admin-tab-badge">{stats.totalFeedbacks !== undefined ? stats.totalFeedbacks : feedbacks.length}</span>
           </button>
         </div>
 
@@ -569,16 +667,45 @@ export default function AdminDashboardPage() {
         )}
 
         {/* ====================================================================== */}
-        {/* TAB 2: ALL SUBMISSIONS (MODERNIZED CARD/TABLE)                         */}
+        {/* TAB 2: STUDENT FILE SUBMISSIONS & BATCH ZIP                            */}
         {/* ====================================================================== */}
         {activeTab === 'submissions' && (
           <div className="admin-card-container">
-            {/* Header */}
-            <div className="admin-card-header-bar">
-              <h2 className="admin-card-header-title">All Lab Submissions</h2>
-              <p className="admin-card-header-desc">
-                Filter and oversee student laboratory C-program uploads across curriculum weeks, years, and sections.
-              </p>
+            {/* Header with Title & Batch ZIP Action */}
+            <div className="admin-card-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h2 className="admin-card-header-title">Student File Submissions & Batch ZIP</h2>
+                <p className="admin-card-header-desc">
+                  Filter and oversee student laboratory C-program uploads, download individual files, or batch download structured ZIP archives for any week and section.
+                </p>
+              </div>
+
+              <div className="zip-download-box" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <span
+                  className="zip-badge"
+                  style={{
+                    padding: '0.4rem 0.75rem',
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#334155',
+                  }}
+                >
+                  📁 {suggestedZipName}
+                </span>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleDownloadZip}
+                  disabled={downloadingZip || submissions.length === 0}
+                  title={subWeek ? `Download batch ZIP for Week ${subWeek}` : 'Select a week in the filters below to download batch ZIP'}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                >
+                  {downloadingZip ? '📦 Creating ZIP...' : '⬇️ Download Batch ZIP'}
+                </button>
+              </div>
             </div>
 
             {/* Submissions Filter Bar */}
@@ -672,34 +799,56 @@ export default function AdminDashboardPage() {
                       <tr key={sub.id}>
                         <td>
                           <code className="student-id-badge">{sub.studentId}</code>
+                          {sub.userName && (
+                            <div style={{ fontSize: '0.785rem', color: '#64748b', marginTop: '0.15rem' }}>
+                              {sub.userName}
+                            </div>
+                          )}
                         </td>
                         <td>Week {sub.week}</td>
                         <td>{sub.year}</td>
                         <td>Sec {sub.section}</td>
                         <td>
-                          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                            {sub.files?.map((f) => (
-                              <span
-                                key={f.id}
-                                className="file-chip"
-                                style={{
-                                  fontSize: '0.75rem',
-                                  padding: '0.2rem 0.5rem',
-                                  background: '#f1f5f9',
-                                  border: '1px solid #e2e8f0',
-                                  borderRadius: '4px',
-                                }}
-                              >
-                                {f.originalFilename}
-                              </span>
-                            ))}
+                          <div className="file-chips" style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            {sub.files && sub.files.length > 0 ? (
+                              sub.files.map((f) => (
+                                <button
+                                  key={f.id}
+                                  type="button"
+                                  className="btn-file-chip"
+                                  onClick={() => handleDownloadSingleFile(sub.id, f.id, f.originalFilename)}
+                                  title={`Download ${f.originalFilename}`}
+                                  style={{
+                                    padding: '0.25rem 0.6rem',
+                                    fontSize: '0.75rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    background: '#f8fafc',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.3rem',
+                                    transition: 'all 150ms ease',
+                                  }}
+                                >
+                                  ⬇️ {f.originalFilename}
+                                </button>
+                              ))
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>No files</span>
+                            )}
                           </div>
                         </td>
                         <td>
                           <span className="revision-badge">v{sub.version}</span>
                         </td>
                         <td style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                          {new Date(sub.createdAt).toLocaleDateString()}
+                          {new Date(sub.updatedAt || sub.createdAt).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
                         </td>
                         <td style={{ textAlign: 'right', paddingRight: '1.5rem' }}>
                           <button
@@ -726,6 +875,407 @@ export default function AdminDashboardPage() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ====================================================================== */}
+        {/* TAB 3: TEACHER FEEDBACK LOGS (SEARCH, INSPECT, MANAGE)                */}
+        {/* ====================================================================== */}
+        {activeTab === 'feedbacks' && (
+          <div className="admin-card-container">
+            {/* Header Description */}
+            <div className="admin-card-header-bar">
+              <div>
+                <h2 className="admin-card-header-title">Teacher Feedback Logs</h2>
+                <p className="admin-card-header-desc">
+                  Inspect, search, review, and manage all evaluation feedback comments and review statuses submitted by teachers.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-sync-action"
+                onClick={() => { loadFeedbacks(); loadStats(); }}
+                disabled={fbLoading}
+                title="Refresh feedback logs"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.5rem 1rem',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#334155',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  marginLeft: 'auto',
+                }}
+              >
+                <span>🔄</span>
+                <span>{fbLoading ? 'Refreshing...' : 'Refresh Logs'}</span>
+              </button>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="admin-filters-bar">
+              <div className="admin-search-wrapper" style={{ flex: '1 1 320px' }}>
+                <span className="search-icon">🔍</span>
+                <input
+                  type="text"
+                  className="admin-search-input"
+                  placeholder="Search by student ID, teacher email, or feedback keywords..."
+                  value={fbQuery}
+                  onChange={(e) => setFbQuery(e.target.value)}
+                />
+                {fbQuery && (
+                  <button
+                    type="button"
+                    className="btn-clear-search"
+                    onClick={() => setFbQuery('')}
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <div className="admin-filter-group" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div>
+                  <select
+                    className="filter-select"
+                    value={fbWeek}
+                    onChange={(e) => setFbWeek(e.target.value)}
+                  >
+                    <option value="">All Weeks</option>
+                    {[...Array(12)].map((_, i) => (
+                      <option key={i + 1} value={`Week ${i + 1}`}>Week {i + 1}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <select
+                    className="filter-select"
+                    value={fbReviewed}
+                    onChange={(e) => setFbReviewed(e.target.value)}
+                  >
+                    <option value="">All Review Statuses</option>
+                    <option value="true">Reviewed Only (✅)</option>
+                    <option value="false">Pending Review (⏳)</option>
+                  </select>
+                </div>
+
+                {(fbQuery || fbWeek || fbReviewed) && (
+                  <button
+                    type="button"
+                    onClick={() => { setFbQuery(''); setFbWeek(''); setFbReviewed(''); }}
+                    style={{
+                      padding: '0.45rem 0.85rem',
+                      background: '#f1f5f9',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      color: '#475569',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Feedback Logs Table */}
+            {fbLoading ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem' }}>
+                <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+                <p style={{ color: '#64748b' }}>Loading teacher feedback records...</p>
+              </div>
+            ) : feedbacks.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#64748b' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>📝</div>
+                <h4 style={{ color: '#1e293b', marginBottom: '0.25rem' }}>No feedback logs found</h4>
+                <p style={{ fontSize: '0.85rem' }}>
+                  {fbQuery || fbWeek || fbReviewed
+                    ? 'No teacher feedback matches the applied filters.'
+                    : 'No teacher reviews or feedbacks have been submitted yet.'}
+                </p>
+              </div>
+            ) : (
+              <div className="modern-table-responsive">
+                <table className="modern-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '130px' }}>Student</th>
+                      <th style={{ width: '90px' }}>Week</th>
+                      <th style={{ width: '120px' }}>Status</th>
+                      <th>Evaluator (Teacher)</th>
+                      <th>Feedback Comments</th>
+                      <th style={{ width: '150px' }}>Updated</th>
+                      <th style={{ width: '140px', textAlign: 'right', paddingRight: '1.5rem' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feedbacks.map((fb) => (
+                      <tr key={fb.id || `${fb.studentId}-${fb.week}`}>
+                        <td>
+                          <code className="student-id-badge" style={{ fontWeight: 700 }}>
+                            {fb.studentId}
+                          </code>
+                        </td>
+                        <td>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '0.2rem 0.5rem',
+                            background: '#f1f5f9',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '4px',
+                            fontWeight: 600,
+                            fontSize: '0.8rem',
+                            color: '#334155',
+                          }}>
+                            {fb.week}
+                          </span>
+                        </td>
+                        <td>
+                          {fb.reviewed ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              padding: '0.2rem 0.6rem',
+                              background: '#dcfce7',
+                              color: '#166534',
+                              borderRadius: '9999px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              border: '1px solid #bbf7d0',
+                            }}>
+                              ✓ Reviewed
+                            </span>
+                          ) : (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              padding: '0.2rem 0.6rem',
+                              background: '#fef3c7',
+                              color: '#92400e',
+                              borderRadius: '9999px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              border: '1px solid #fde68a',
+                            }}>
+                              ⏳ Pending
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: '0.85rem', color: '#1e293b' }}>
+                          {fb.teacherEmail ? (
+                            <span style={{ fontFamily: 'monospace', color: '#0369a1', fontWeight: 500 }}>
+                              {fb.teacherEmail}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>System / Unassigned</span>
+                          )}
+                        </td>
+                        <td>
+                          <div
+                            style={{
+                              maxWidth: '320px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontSize: '0.85rem',
+                              color: fb.feedbackText ? '#334155' : '#94a3b8',
+                              cursor: fb.feedbackText ? 'pointer' : 'default',
+                            }}
+                            onClick={() => fb.feedbackText && setViewingFeedback(fb)}
+                            title={fb.feedbackText ? 'Click to read full feedback' : 'No comments provided'}
+                          >
+                            {fb.feedbackText || '(No comments provided)'}
+                          </div>
+                        </td>
+                        <td style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                          {fb.updatedAt ? new Date(fb.updatedAt).toLocaleString() : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', paddingRight: '1.5rem' }}>
+                          <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                            {fb.feedbackText && (
+                              <button
+                                type="button"
+                                onClick={() => setViewingFeedback(fb)}
+                                style={{
+                                  padding: '0.3rem 0.65rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  background: '#eff6ff',
+                                  color: '#2563eb',
+                                  border: '1px solid #bfdbfe',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                }}
+                                title="View full feedback note"
+                              >
+                                View Note
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFeedback(fb.id, fb.studentId, fb.week)}
+                              disabled={deletingFbId === fb.id}
+                              style={{
+                                padding: '0.3rem 0.65rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                background: '#fee2e2',
+                                color: '#dc2626',
+                                border: '1px solid #fecaca',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                opacity: deletingFbId === fb.id ? 0.6 : 1,
+                              }}
+                              title="Delete this feedback entry"
+                            >
+                              {deletingFbId === fb.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* View Full Feedback Note Modal */}
+        {viewingFeedback && (
+          <div className="admin-modal-overlay" onClick={() => setViewingFeedback(null)}>
+            <div className="admin-modal-card" style={{ maxWidth: '580px' }} onClick={(e) => e.stopPropagation()}>
+              <div className="admin-modal-header">
+                <div className="admin-modal-header-info">
+                  <div className="admin-modal-icon-badge" style={{ background: '#e0f2fe', color: '#0284c7' }}>
+                    <span>📝</span>
+                  </div>
+                  <div>
+                    <h2 className="admin-modal-title">Teacher Feedback Note</h2>
+                    <p className="admin-modal-subtitle">
+                      Student: <strong style={{ color: '#0284c7' }}>{viewingFeedback.studentId}</strong> &bull; {viewingFeedback.week}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="admin-modal-close-btn"
+                  onClick={() => setViewingFeedback(null)}
+                  title="Close modal"
+                >
+                  &times;
+                </button>
+              </div>
+
+              <div style={{ padding: '1.25rem 1.75rem' }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: '0.75rem',
+                  padding: '0.85rem 1rem',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  marginBottom: '1.25rem',
+                  fontSize: '0.85rem',
+                }}>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', textTransform: 'uppercase' }}>Status</span>
+                    {viewingFeedback.reviewed ? (
+                      <span style={{ color: '#166534', fontWeight: 700 }}>✓ Reviewed</span>
+                    ) : (
+                      <span style={{ color: '#92400e', fontWeight: 700 }}>⏳ Pending Review</span>
+                    )}
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', textTransform: 'uppercase' }}>Evaluator</span>
+                    <span style={{ color: '#0369a1', fontFamily: 'monospace', fontWeight: 600 }}>
+                      {viewingFeedback.teacherEmail || 'System / Unassigned'}
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', textTransform: 'uppercase' }}>Created At</span>
+                    <span style={{ color: '#334155' }}>
+                      {viewingFeedback.createdAt ? new Date(viewingFeedback.createdAt).toLocaleString() : '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', textTransform: 'uppercase' }}>Last Updated</span>
+                    <span style={{ color: '#334155' }}>
+                      {viewingFeedback.updatedAt ? new Date(viewingFeedback.updatedAt).toLocaleString() : '—'}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: '#1e293b', marginBottom: '0.5rem' }}>
+                    Feedback Comments
+                  </label>
+                  <div style={{
+                    padding: '1rem',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    minHeight: '120px',
+                    maxHeight: '260px',
+                    overflowY: 'auto',
+                    fontSize: '0.9rem',
+                    lineHeight: '1.5',
+                    color: '#1e293b',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}>
+                    {viewingFeedback.feedbackText || '(No comments entered)'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteFeedback(viewingFeedback.id, viewingFeedback.studentId, viewingFeedback.week)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      background: '#fee2e2',
+                      color: '#dc2626',
+                      border: '1px solid #fecaca',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Delete Feedback
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewingFeedback(null)}
+                    style={{
+                      padding: '0.5rem 1.25rem',
+                      background: '#2563eb',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -792,7 +1342,7 @@ export default function AdminDashboardPage() {
                       className="admin-modal-input"
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
-                      placeholder="e.g. user@rguktn.ac.in"
+                      placeholder="e.g. user@rguktn.ac.in, faculty@rguktrkv.ac.in"
                       required
                     />
                   </div>

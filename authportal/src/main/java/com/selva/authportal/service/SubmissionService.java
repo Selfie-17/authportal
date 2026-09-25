@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SubmissionService {
 
-    private static final Pattern STUDENT_ID_PATTERN = Pattern.compile("^[Nn]\\d{6}$");
+    private static final Pattern STUDENT_ID_PATTERN = Pattern.compile("^[A-Za-z]\\d{6}$");
     private static final long MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB per file
     private static final int MAX_FILES_PER_SUBMISSION = 20;
 
@@ -44,12 +44,12 @@ public class SubmissionService {
     private final SubmissionFileRepository submissionFileRepository;
     private final StorageService storageService;
 
-    @Value("${app.auth.student-pattern:^[Nn](\\d{6})@rguktn\\.ac\\.in$}")
+    @Value("${app.auth.student-pattern:^[A-Za-z](\\d{6})@(rguktn\\.ac\\.in|rguktrkv\\.ac\\.in|rguktong\\.ac\\.in|rguktsklm\\.ac\\.in|rgukt\\.in)$}")
     private String studentPatternRegex;
 
     /**
      * Derives the default institutional student ID from an authenticated email.
-     * Example: n210001@rguktn.ac.in -> N210001
+     * Example: n210001@rguktn.ac.in -> N210001, r210001@rguktrkv.ac.in -> R210001
      *
      * @param email The user's authenticated institutional email
      * @return Uppercase Student ID (e.g. N210001) or empty string if not derived
@@ -77,7 +77,7 @@ public class SubmissionService {
     public String validateAndNormalizeStudentId(String studentId) {
         if (studentId == null || !STUDENT_ID_PATTERN.matcher(studentId.trim()).matches()) {
             throw new InvalidSubmissionException(
-                    "Invalid Student ID: '" + studentId + "'. Must start with N or n followed by 6 digits (e.g. N210001)."
+                    "Invalid Student ID: '" + studentId + "'. Must follow institutional format with campus prefix and 6 digits (e.g. N210001, R210001, O210001, S210001)."
             );
         }
         return studentId.trim().toUpperCase();

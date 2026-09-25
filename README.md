@@ -45,8 +45,14 @@ Designed specifically for academic environments, the portal provides institution
 
 * **Dual Authentication**: Seamlessly supports both Google OAuth 2.0 / OpenID Connect and traditional email/password credentials with BCrypt password hashing.
 * **Server-Side Role Determination**: Eliminates client privilege escalation. Roles (`STUDENT`, `TEACHER`, `ADMIN`) are strictly determined server-side from institutional email addresses:
-  * **Student Regex Validation**: Matches `^[Nn]\d{6}@rguktn\.ac\.in$` (e.g., `N210921@rguktn.ac.in`).
-  * **Teacher Allowlist**: Restricts `TEACHER` roles to explicitly approved institutional faculty emails via `TEACHER_ALLOWED_EMAILS`.
+  * **Supported Institutional Domains**:
+    * **Nuzvid Campus (AP)**: `@rguktn.ac.in`
+    * **RK Valley (Idupulapaya) Campus (AP)**: `@rguktrkv.ac.in`
+    * **Ongole Campus (AP)**: `@rguktong.ac.in`
+    * **Srikakulam Campus (AP)**: `@rguktsklm.ac.in`
+    * **Alternate Domain (Google Sign-In & Institutional)**: `@rgukt.in`
+  * **Student Regex Validation**: Matches `^[A-Za-z]\d{6}@(rguktn\.ac\.in|rguktrkv\.ac\.in|rguktong\.ac\.in|rguktsklm\.ac\.in|rgukt\.in)$` (e.g., `N210921@rguktn.ac.in`, `R210001@rguktrkv.ac.in`, `O210001@rguktong.ac.in`, `S210001@rguktsklm.ac.in`).
+  * **Teacher Allowlist**: Restricts `TEACHER` roles during local registration to explicitly approved institutional faculty emails via `TEACHER_ALLOWED_EMAILS` (and any non-student institutional domain account during Google OAuth).
   * **Admin Protection**: The `ADMIN` role can never be self-selected or created via public registration. Existing `ADMIN` privileges are preserved across all login mechanisms.
 * **Zero-JWT in URL (Single-Use Exchange Code)**: On Google OAuth redirect, the backend issues a short-lived (60s), single-use exchange code to the frontend callback. The frontend exchanges this code via a secure POST request to obtain the JWT in the JSON body, preventing token leakage through browser history, referrer headers, or proxy logs.
 * **Safe Account Linking**: If a user previously registered via email/password logs in with a verified Google institutional account, the backend links the Google identity safely without downgrading roles or duplicating user records.
@@ -307,6 +313,7 @@ Configure these environment variables in a `.env` file at the project root or ex
 | `GOOGLE_CLIENT_ID` | Yes | `...apps.googleusercontent.com` | Google Cloud OAuth 2.0 Client ID for user login. |
 | `GOOGLE_CLIENT_SECRET` | Yes | `GOCSPX-...` | Google Cloud OAuth 2.0 Client Secret for user login. |
 | `FRONTEND_URL` | No | `http://localhost:5173` | Frontend URL for CORS and OAuth redirect callback. |
+| `INSTITUTIONAL_DOMAINS`| No | `rguktn.ac.in,rguktrkv.ac.in,rguktong.ac.in,rguktsklm.ac.in,rgukt.in` | Comma-separated list of approved institutional domains. |
 | `TEACHER_ALLOWED_EMAILS`| No | `hod.cse@rguktn.ac.in,dean@rguktn.ac.in` | Comma-separated allowlist of approved institutional teacher emails. |
 | `STORAGE_TYPE` | No | `local` | Storage provider: `local` (filesystem) or `backblaze` (Backblaze B2 S3 API). |
 | `STORAGE_PATH` | No | `storage` | Base path for local disk storage (when `STORAGE_TYPE=local`). |

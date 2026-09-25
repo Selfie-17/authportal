@@ -126,8 +126,8 @@ export default function LoginForm() {
         type="email"
         value={formData.email}
         onChange={handleChange}
-        placeholder="e.g., n260001@rguktn.ac.in"
-        helperText="Students use N/n + 6 digits (e.g., N210921@rguktn.ac.in)"
+        placeholder="e.g., n260001@rguktn.ac.in or r260001@rguktrkv.ac.in"
+        helperText=""
         error={errors.email}
         required
         disabled={isLoading}

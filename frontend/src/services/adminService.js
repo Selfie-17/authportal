@@ -128,4 +128,40 @@ export const adminService = {
     }
     return res.json();
   },
+
+  /**
+   * Fetches all teacher feedbacks with optional filters.
+   */
+  async getFeedbacks(params = {}) {
+    const url = new URL(API_ENDPOINTS.ADMIN_FEEDBACKS);
+    if (params.studentId) url.searchParams.set('studentId', params.studentId);
+    if (params.week) url.searchParams.set('week', params.week);
+    if (params.teacherEmail) url.searchParams.set('teacherEmail', params.teacherEmail);
+    if (params.reviewed !== undefined && params.reviewed !== '') url.searchParams.set('reviewed', params.reviewed);
+    if (params.query) url.searchParams.set('query', params.query);
+
+    const res = await fetch(url.toString(), {
+      headers: authService.getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Failed to fetch teacher feedbacks.');
+    }
+    return res.json();
+  },
+
+  /**
+   * Deletes a teacher feedback entry by ID.
+   */
+  async deleteFeedback(id) {
+    const res = await fetch(API_ENDPOINTS.ADMIN_FEEDBACK_DELETE(id), {
+      method: 'DELETE',
+      headers: authService.getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Failed to delete feedback.');
+    }
+    return res.json();
+  },
 };

@@ -66,11 +66,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             name = normalizedEmail.split("@")[0];
         }
 
-        // 1. Verify eligibility for Google OAuth (must be configured Google Admin or @rguktn.ac.in institutional account)
+        // 1. Verify eligibility for Google OAuth (must be configured Google Admin or institutional account)
         if (!emailRoleResolver.isAllowedOAuthEmail(normalizedEmail)) {
             throw new OAuth2AuthenticationException(
                     new OAuth2Error("unauthorized_account"),
-                    "Access denied. Only @rguktn.ac.in institutional accounts and authorized administrators are permitted to authenticate via Google."
+                    "Access denied. Only institutional accounts (@rguktn.ac.in, @rguktrkv.ac.in, @rguktong.ac.in, @rguktsklm.ac.in, @rgukt.in) and authorized administrators are permitted to authenticate via Google."
             );
         }
 

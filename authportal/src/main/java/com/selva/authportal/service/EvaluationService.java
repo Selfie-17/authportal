@@ -903,14 +903,7 @@ public class EvaluationService {
             }
         }
 
-        return TeacherFeedbackResponse.builder()
-                .studentId(saved.getStudentId())
-                .week(saved.getWeek())
-                .reviewed(saved.isReviewed())
-                .feedbackText(saved.getFeedbackText())
-                .teacherEmail(saved.getTeacherEmail())
-                .updatedAt(saved.getUpdatedAt())
-                .build();
+        return TeacherFeedbackResponse.fromEntity(saved);
     }
 
     /**

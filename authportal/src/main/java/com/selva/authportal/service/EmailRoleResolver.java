@@ -31,20 +31,31 @@ import java.util.stream.Collectors;
 public class EmailRoleResolver {
 
     private final Pattern studentPattern;
-    private final String institutionalDomain;
+    private final Set<String> institutionalDomains;
     private final TeacherEligibilityService teacherEligibilityService;
     private final Set<String> googleAdminEmails;
 
     @Autowired
     public EmailRoleResolver(
-            @Value("${app.auth.student-pattern:^[Nn]\\d{6}@rguktn\\.ac\\.in$}") String studentRegex,
-            @Value("${app.auth.institutional-domain:rguktn.ac.in}") String institutionalDomain,
+            @Value("${app.auth.student-pattern:^[A-Za-z]\\d{6}@(rguktn\\.ac\\.in|rguktrkv\\.ac\\.in|rguktong\\.ac\\.in|rguktsklm\\.ac\\.in|rgukt\\.in)$}") String studentRegex,
+            @Value("${app.auth.institutional-domains:${app.auth.institutional-domain:rguktn.ac.in,rguktrkv.ac.in,rguktong.ac.in,rguktsklm.ac.in,rgukt.in}}") String institutionalDomainsConfig,
             TeacherEligibilityService teacherEligibilityService,
             @Value("${app.auth.google-admin-emails:uday@rguktn.ac.in,kampadevaselvaraj@gmail.com}") String googleAdminEmailsConfig
     ) {
-        this.studentPattern = Pattern.compile(studentRegex);
-        this.institutionalDomain = institutionalDomain.toLowerCase();
+        this.studentPattern = Pattern.compile(studentRegex, Pattern.CASE_INSENSITIVE);
         this.teacherEligibilityService = teacherEligibilityService;
+
+        if (institutionalDomainsConfig == null || institutionalDomainsConfig.trim().isEmpty()) {
+            this.institutionalDomains = Set.of("rguktn.ac.in", "rguktrkv.ac.in", "rguktong.ac.in", "rguktsklm.ac.in", "rgukt.in");
+        } else {
+            this.institutionalDomains = Arrays.stream(institutionalDomainsConfig.split(","))
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .map(d -> d.startsWith("@") ? d.substring(1) : d)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.collectingAndThen(Collectors.toCollection(java.util.LinkedHashSet::new), Collections::unmodifiableSet));
+        }
+
         if (googleAdminEmailsConfig == null || googleAdminEmailsConfig.trim().isEmpty()) {
             this.googleAdminEmails = Collections.emptySet();
         } else {
@@ -58,10 +69,10 @@ public class EmailRoleResolver {
 
     public EmailRoleResolver(
             String studentRegex,
-            String institutionalDomain,
+            String institutionalDomainsConfig,
             TeacherEligibilityService teacherEligibilityService
     ) {
-        this(studentRegex, institutionalDomain, teacherEligibilityService, "uday@rguktn.ac.in,kampadevaselvaraj@gmail.com");
+        this(studentRegex, institutionalDomainsConfig, teacherEligibilityService, "uday@rguktn.ac.in,kampadevaselvaraj@gmail.com");
     }
 
     /**
@@ -77,15 +88,17 @@ public class EmailRoleResolver {
         }
 
         String normalizedEmail = email.trim().toLowerCase();
-        String domainSuffix = "@" + institutionalDomain;
 
-        if (!normalizedEmail.endsWith(domainSuffix)) {
+        if (!isInstitutionalDomain(normalizedEmail)) {
+            String domainDisplay = institutionalDomains.size() == 1
+                    ? "@" + institutionalDomains.iterator().next()
+                    : institutionalDomains.stream().map(d -> "@" + d).collect(Collectors.joining(", "));
             throw new InvalidInstitutionalEmailException(
-                    "Only institutional email addresses ending with @" + institutionalDomain + " are permitted."
+                    "Only institutional email addresses ending with " + domainDisplay + " are permitted."
             );
         }
 
-        // Check student regex pattern (case-insensitive for N/n)
+        // Check student regex pattern (case-insensitive)
         if (studentPattern.matcher(email.trim()).matches()) {
             return Role.STUDENT;
         }
@@ -101,13 +114,21 @@ public class EmailRoleResolver {
     }
 
     /**
-     * Helper to verify if an email belongs to the institutional domain.
+     * Helper to verify if an email belongs to an approved institutional domain.
      */
     public boolean isInstitutionalDomain(String email) {
         if (email == null) {
             return false;
         }
-        return email.trim().toLowerCase().endsWith("@" + institutionalDomain);
+        String normalizedEmail = email.trim().toLowerCase();
+        return institutionalDomains.stream().anyMatch(domain -> normalizedEmail.endsWith("@" + domain));
+    }
+
+    /**
+     * Returns an unmodifiable set of the allowed institutional domains.
+     */
+    public Set<String> getInstitutionalDomains() {
+        return institutionalDomains;
     }
 
     /**
@@ -123,7 +144,7 @@ public class EmailRoleResolver {
 
     /**
      * Verifies if an email is permitted to authenticate via Google OAuth.
-     * Allowed if the email is a configured Google Admin OR belongs to the institutional domain.
+     * Allowed if the email is a configured Google Admin OR belongs to an institutional domain.
      */
     public boolean isAllowedOAuthEmail(String email) {
         if (email == null) {
@@ -137,8 +158,8 @@ public class EmailRoleResolver {
      * Resolves the system Role specifically for Google OAuth logins.
      * Rules:
      * 1. Configured Google Admin accounts -> ADMIN
-     * 2. Non-admin accounts strictly require institutional domain (@rguktn.ac.in)
-     * 3. N/n followed by 6 digits institutional email -> STUDENT
+     * 2. Non-admin accounts strictly require an approved institutional domain
+     * 3. Campus prefix followed by 6 digits institutional email -> STUDENT
      * 4. Any other institutional email -> TEACHER
      *
      * @param email The Google authenticated email address
@@ -159,17 +180,18 @@ public class EmailRoleResolver {
 
         // 2. Non-admin accounts strictly require institutional domain
         if (!isInstitutionalDomain(normalizedEmail)) {
+            String domainDisplay = institutionalDomains.stream().map(d -> "@" + d).collect(Collectors.joining(", "));
             throw new InvalidInstitutionalEmailException(
-                    "Access denied. Only @" + institutionalDomain + " institutional accounts and authorized administrators are permitted to sign in with Google."
+                    "Access denied. Only institutional accounts (" + domainDisplay + ") and authorized administrators are permitted to sign in with Google."
             );
         }
 
-        // 3. Student pattern check (N/n + 6 digits)
+        // 3. Student pattern check
         if (studentPattern.matcher(email.trim()).matches()) {
             return Role.STUDENT;
         }
 
-        // 4. All other @rguktn.ac.in accounts are automatically assigned TEACHER for Google OAuth
+        // 4. All other institutional accounts are automatically assigned TEACHER for Google OAuth
         return Role.TEACHER;
     }
 }
