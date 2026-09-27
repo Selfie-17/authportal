@@ -34,4 +34,22 @@ public class SubmissionSpecification {
             return cb.and(predicates.toArray(new Predicate[0]));
         };
     }
+
+    public static Specification<Submission> withWeekAndSearch(Integer week, String search) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (week != null) {
+                predicates.add(cb.equal(root.get("week"), week));
+            }
+            if (search != null && !search.trim().isEmpty()) {
+                String term = "%" + search.trim().toUpperCase() + "%";
+                Predicate studentIdPredicate = cb.like(cb.upper(root.get("studentId")), term);
+                Predicate userNamePredicate = cb.like(cb.upper(root.get("user").get("name")), term);
+                predicates.add(cb.or(studentIdPredicate, userNamePredicate));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
 }

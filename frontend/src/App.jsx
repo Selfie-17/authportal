@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import StudentSubmissionPage from './pages/StudentSubmissionPage';
 import TeacherSubmissionsPage from './pages/TeacherSubmissionsPage';
+import TeacherFeedbackPage from './pages/TeacherFeedbackPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import ProfilePage from './pages/ProfilePage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
@@ -72,6 +73,16 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
               <TeacherSubmissionsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Student Feedback & PDF Review Page */}
+        <Route
+          path="/teacher/feedback"
+          element={
+            <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+              <TeacherFeedbackPage />
             </ProtectedRoute>
           }
         />

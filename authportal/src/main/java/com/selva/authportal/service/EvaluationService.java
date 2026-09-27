@@ -821,22 +821,31 @@ public class EvaluationService {
         WeekInfo weekInfo = normalizeWeek(week);
 
         List<StudentEvaluation> evals = evaluationRepository.findAllByStudentIdAndWeek(normalizedId, weekInfo.displayName());
-        if (evals.isEmpty()) {
-            throw new ResourceNotFoundException("Evaluation not found for student " + normalizedId + " and " + weekInfo.displayName());
-        }
-        StudentEvaluation eval = evals.get(0);
+        Submission matchingSubmission = null;
 
-        Integer sectionNumber = parseSectionNumber(eval.getSectionId());
-        String yearStr = null;
-        if (eval.getRawJson() != null && !eval.getRawJson().isEmpty()) {
-            try {
-                JsonNode sNode = objectMapper.readTree(eval.getRawJson());
-                if (sNode.hasNonNull("year")) yearStr = sNode.get("year").asText();
-                else if (sNode.hasNonNull("year_level")) yearStr = sNode.get("year_level").asText();
-            } catch (Exception ignored) {}
+        if (!evals.isEmpty()) {
+            StudentEvaluation eval = evals.get(0);
+            Integer sectionNumber = parseSectionNumber(eval.getSectionId());
+            String yearStr = null;
+            if (eval.getRawJson() != null && !eval.getRawJson().isEmpty()) {
+                try {
+                    JsonNode sNode = objectMapper.readTree(eval.getRawJson());
+                    if (sNode.hasNonNull("year")) yearStr = sNode.get("year").asText();
+                    else if (sNode.hasNonNull("year_level")) yearStr = sNode.get("year_level").asText();
+                } catch (Exception ignored) {}
+            }
+            matchingSubmission = findMatchingSubmission(eval.getStudentId(), eval.getWeekNumber(), sectionNumber, yearStr);
         }
 
-        Submission matchingSubmission = findMatchingSubmission(eval.getStudentId(), eval.getWeekNumber(), sectionNumber, yearStr);
+        if (matchingSubmission == null) {
+            List<Submission> directSubs = submissionRepository.findByStudentIdIgnoreCaseAndWeekOrderByVersionDescUpdatedAtDesc(
+                    normalizedId, weekInfo.weekNumber()
+            );
+            if (!directSubs.isEmpty()) {
+                matchingSubmission = directSubs.get(0);
+            }
+        }
+
         if (matchingSubmission == null) {
             throw new ResourceNotFoundException("No submission found for student " + normalizedId + " in " + weekInfo.displayName());
         }

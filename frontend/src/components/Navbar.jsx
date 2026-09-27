@@ -46,6 +46,14 @@ export default function Navbar() {
                 Teacher Dashboard
               </Link>
             )}
+            {(isTeacher || isAdmin) && (
+              <Link
+                to="/teacher/feedback"
+                className={`portal-nav-link ${location.pathname === '/teacher/feedback' ? 'active' : ''}`}
+              >
+                Student Feedback
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 to="/admin"

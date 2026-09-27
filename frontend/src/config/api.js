@@ -17,7 +17,10 @@ export const API_ENDPOINTS = {
   SUBMISSIONS_MY: `${API_BASE_URL}/api/submissions/my`,
   DEFAULT_STUDENT_ID: `${API_BASE_URL}/api/submissions/default-student-id`,
   TEACHER_SUBMISSIONS: `${API_BASE_URL}/api/submissions/teacher`,
+  TEACHER_SUBMISSIONS_PAGE: `${API_BASE_URL}/api/teacher/submissions-page`,
   TEACHER_DOWNLOAD_ZIP: `${API_BASE_URL}/api/submissions/teacher/download-zip`,
+  SUBMISSION_FILE_STREAM: (submissionId, fileId) =>
+    `${API_BASE_URL}/api/submissions/${submissionId}/files/${fileId}?inline=true`,
   // Admin endpoints
   ADMIN_STATS: `${API_BASE_URL}/api/admin/stats`,
   ADMIN_USERS: `${API_BASE_URL}/api/admin/users`,

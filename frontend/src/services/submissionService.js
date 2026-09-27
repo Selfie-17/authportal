@@ -195,4 +195,87 @@ export const submissionService = {
     link.remove();
     setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
   },
+
+  /**
+   * Fetches paginated student submissions with PDF metadata and teacher feedback.
+   */
+  async getPaginatedSubmissions({ page = 0, size = 20, week, search } = {}) {
+    const params = new URLSearchParams();
+    params.append('page', page);
+    params.append('size', size);
+    if (week && week !== 'ALL' && week.trim() !== '') params.append('week', week);
+    if (search && search.trim() !== '') params.append('search', search.trim());
+
+    const url = `${API_ENDPOINTS.TEACHER_SUBMISSIONS_PAGE}?${params.toString()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || 'Failed to load paginated submissions.');
+    }
+    return await response.json();
+  },
+
+  /**
+   * Streams an authenticated PDF file and opens it in a new browser tab.
+   * If popup blockers interfere, falls back to direct blob navigation.
+   */
+  async openSubmissionPdfInNewTab(submissionId, fileId, filename) {
+    if (!submissionId || !fileId) {
+      throw new Error('Submission ID and File ID are required to open PDF.');
+    }
+
+    // Open target tab immediately during user click event to prevent browser popup blockers
+    const newTab = window.open('about:blank', '_blank');
+    if (newTab) {
+      newTab.document.write(
+        `<!DOCTYPE html><html><head><title>Loading ${filename || 'PDF'}...</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#334155;}</style></head><body><div style="text-align:center;"><div style="font-size:2.5rem;margin-bottom:1rem;">📄</div><h3 style="margin:0 0 0.5rem;">Loading Student PDF Report...</h3><p style="color:#64748b;font-size:0.9rem;margin:0;">Streaming securely from storage...</p></div></body></html>`
+      );
+    }
+
+    try {
+      const url = API_ENDPOINTS.SUBMISSION_FILE_STREAM(submissionId, fileId);
+      const headers = this.getHeaders();
+      headers['Accept'] = 'application/pdf, */*';
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        let msg = 'Failed to load student PDF.';
+        try {
+          const errData = await response.json();
+          if (errData && errData.message) msg = errData.message;
+        } catch (_) {}
+        throw new Error(msg);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+      const blobUrl = window.URL.createObjectURL(blob);
+
+      if (newTab && !newTab.closed) {
+        newTab.location.href = blobUrl;
+      } else {
+        window.open(blobUrl, '_blank');
+      }
+
+      // Cleanup object URL after tab has loaded
+      setTimeout(() => {
+        try {
+          window.URL.revokeObjectURL(blobUrl);
+        } catch (_) {}
+      }, 60000);
+    } catch (err) {
+      if (newTab && !newTab.closed) {
+        newTab.document.body.innerHTML = `<div style="text-align:center;padding:2rem;font-family:system-ui,sans-serif;color:#dc2626;"><h3>Failed to Load PDF</h3><p>${err.message}</p></div>`;
+      }
+      throw err;
+    }
+  },
 };

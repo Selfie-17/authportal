@@ -122,24 +122,28 @@ public class SubmissionController {
 
 
     /**
-     * Downloads an individual file from a submission.
+     * Downloads or streams an individual file from a submission.
+     * When inline=true or when accessed via /view, streams file inline (e.g. For PDF tab display).
      * Access is restricted to the owning student, or any authorized teacher / admin.
      * Storage keys are taken from the database after authorization; the client cannot supply a B2 key.
      */
-    @GetMapping("/{submissionId}/files/{fileId}")
+    @GetMapping({"/{submissionId}/files/{fileId}", "/{submissionId}/files/{fileId}/view"})
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<StreamingResponseBody> downloadFile(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable("submissionId") Long submissionId,
-            @PathVariable("fileId") Long fileId
+            @PathVariable("fileId") Long fileId,
+            @RequestParam(value = "inline", defaultValue = "false") boolean inline,
+            jakarta.servlet.http.HttpServletRequest request
     ) {
         User currentUser = resolveCurrentUser(userDetails);
         SubmissionService.DownloadableFile downloadable = submissionService.loadFileForDownload(
                 currentUser, submissionId, fileId
         );
-        log.info("Single-file download type=file submissionId={} fileId={} requester={} filename={}",
-                submissionId, fileId, currentUser.getEmail(), downloadable.filename());
-        return StreamingFileResponses.from(downloadable, true);
+        boolean isInline = inline || (request != null && request.getRequestURI().endsWith("/view"));
+        log.info("Single-file access type=file submissionId={} fileId={} requester={} filename={} inline={}",
+                submissionId, fileId, currentUser.getEmail(), downloadable.filename(), isInline);
+        return StreamingFileResponses.from(downloadable, !isInline);
     }
 
     /**

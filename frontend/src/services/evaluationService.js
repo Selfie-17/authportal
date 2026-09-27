@@ -368,4 +368,35 @@ export const evaluationService = {
     link.click();
     link.remove();
   },
+
+  /**
+   * Opens the student's uploaded PDF report in a new browser tab.
+   * Handles pre-opening a blank tab to bypass browser popup blockers.
+   */
+  async openStudentPdfInNewTab(studentId, week) {
+    if (!studentId || !week) {
+      throw new Error('Student ID and week are required to open PDF.');
+    }
+
+    const newTab = window.open('about:blank', '_blank');
+    if (newTab) {
+      newTab.document.write(
+        `<!DOCTYPE html><html><head><title>Loading PDF - ${studentId} ${week}...</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#334155;}</style></head><body><div style="text-align:center;"><div style="font-size:2.5rem;margin-bottom:1rem;">📄</div><h3 style="margin:0 0 0.5rem;">Loading Student PDF Report...</h3><p style="color:#64748b;font-size:0.9rem;margin:0;">Streaming securely from storage...</p></div></body></html>`
+      );
+    }
+
+    try {
+      const data = await this.getStudentPdfData(studentId, week);
+      if (newTab && !newTab.closed) {
+        newTab.location.href = data.blobUrl;
+      } else {
+        window.open(data.blobUrl, '_blank');
+      }
+    } catch (err) {
+      if (newTab && !newTab.closed) {
+        newTab.document.body.innerHTML = `<div style="text-align:center;padding:2rem;font-family:system-ui,sans-serif;color:#dc2626;"><h3>Failed to Load PDF</h3><p>${err.message}</p></div>`;
+      }
+      throw err;
+    }
+  },
 };

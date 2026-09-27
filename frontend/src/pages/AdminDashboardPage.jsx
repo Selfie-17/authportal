@@ -31,6 +31,7 @@ export default function AdminDashboardPage() {
   const [fbLoading, setFbLoading] = useState(false);
   const [viewingFeedback, setViewingFeedback] = useState(null);
   const [deletingFbId, setDeletingFbId] = useState(null);
+  const [openingPdfKey, setOpeningPdfKey] = useState(null);
 
   // Users State
   const [users, setUsers] = useState([]);
@@ -179,6 +180,18 @@ export default function AdminDashboardPage() {
       setBannerErr(err.message || 'Failed to delete feedback record.');
     } finally {
       setDeletingFbId(null);
+    }
+  };
+
+  const handleAdminViewPdf = async (studentId, week) => {
+    const key = `${studentId}-${week}`;
+    try {
+      setOpeningPdfKey(key);
+      await evaluationService.openStudentPdfInNewTab(studentId, week);
+    } catch (err) {
+      alert(`Could not open PDF for student ${studentId} (${week}): ${err.message}`);
+    } finally {
+      setOpeningPdfKey(null);
     }
   };
 
@@ -1014,7 +1027,7 @@ export default function AdminDashboardPage() {
                       <th>Evaluator (Teacher)</th>
                       <th>Feedback Comments</th>
                       <th style={{ width: '150px' }}>Updated</th>
-                      <th style={{ width: '140px', textAlign: 'right', paddingRight: '1.5rem' }}>Actions</th>
+                      <th style={{ width: '220px', textAlign: 'right', paddingRight: '1.5rem' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1103,6 +1116,29 @@ export default function AdminDashboardPage() {
                         </td>
                         <td style={{ textAlign: 'right', paddingRight: '1.5rem' }}>
                           <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminViewPdf(fb.studentId, fb.week)}
+                              disabled={openingPdfKey === `${fb.studentId}-${fb.week}`}
+                              style={{
+                                padding: '0.3rem 0.65rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                background: '#f0fdf4',
+                                color: '#166534',
+                                border: '1px solid #bbf7d0',
+                                borderRadius: '6px',
+                                cursor: openingPdfKey === `${fb.studentId}-${fb.week}` ? 'wait' : 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                transition: 'all 150ms ease',
+                              }}
+                              title={`Open submitted PDF for ${fb.studentId} (${fb.week}) in a new tab`}
+                            >
+                              <span>{openingPdfKey === `${fb.studentId}-${fb.week}` ? '⏳' : '📄'}</span>
+                              <span>View PDF ↗</span>
+                            </button>
                             {fb.feedbackText && (
                               <button
                                 type="button"
@@ -1216,6 +1252,50 @@ export default function AdminDashboardPage() {
                       {viewingFeedback.updatedAt ? new Date(viewingFeedback.updatedAt).toLocaleString() : '—'}
                     </span>
                   </div>
+                </div>
+
+                {/* PDF Link in View Feedback Modal */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.75rem 1rem',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '8px',
+                  marginBottom: '1.25rem',
+                  gap: '0.75rem',
+                  flexWrap: 'wrap',
+                }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', color: '#166534', fontWeight: 700 }}>
+                      📄 Student Lab Report PDF
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      Open the original submitted PDF lab report for {viewingFeedback.studentId} ({viewingFeedback.week})
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAdminViewPdf(viewingFeedback.studentId, viewingFeedback.week)}
+                    disabled={openingPdfKey === `${viewingFeedback.studentId}-${viewingFeedback.week}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      padding: '0.45rem 0.95rem',
+                      borderRadius: '6px',
+                      background: '#16a34a',
+                      color: '#ffffff',
+                      border: 'none',
+                      fontWeight: 600,
+                      fontSize: '0.825rem',
+                      cursor: openingPdfKey === `${viewingFeedback.studentId}-${viewingFeedback.week}` ? 'wait' : 'pointer',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    }}
+                  >
+                    <span>{openingPdfKey === `${viewingFeedback.studentId}-${viewingFeedback.week}` ? '⏳ Opening...' : '📄 Open PDF in New Tab ↗'}</span>
+                  </button>
                 </div>
 
                 <div>

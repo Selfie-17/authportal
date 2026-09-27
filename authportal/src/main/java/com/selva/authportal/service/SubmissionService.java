@@ -6,12 +6,20 @@ import com.selva.authportal.exception.FileValidationException;
 import com.selva.authportal.exception.InvalidSubmissionException;
 import com.selva.authportal.exception.ResourceNotFoundException;
 import com.selva.authportal.model.*;
+import com.selva.authportal.dto.TeacherSubmissionPageResponse;
+import com.selva.authportal.dto.TeacherSubmissionRecordDTO;
 import com.selva.authportal.repository.SubmissionFileRepository;
 import com.selva.authportal.repository.SubmissionRepository;
+import com.selva.authportal.repository.SubmissionSpecification;
+import com.selva.authportal.repository.TeacherFeedbackRepository;
 import com.selva.authportal.util.SubmissionPathUtils;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.security.access.AccessDeniedException;
@@ -33,7 +41,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SubmissionService {
 
     private static final Pattern STUDENT_ID_PATTERN = Pattern.compile("^[A-Za-z]\\d{6}$");
@@ -43,6 +50,30 @@ public class SubmissionService {
     private final SubmissionRepository submissionRepository;
     private final SubmissionFileRepository submissionFileRepository;
     private final StorageService storageService;
+    private TeacherFeedbackRepository teacherFeedbackRepository;
+
+    public SubmissionService(SubmissionRepository submissionRepository,
+                             SubmissionFileRepository submissionFileRepository,
+                             StorageService storageService) {
+        this.submissionRepository = submissionRepository;
+        this.submissionFileRepository = submissionFileRepository;
+        this.storageService = storageService;
+    }
+
+    @Autowired
+    public SubmissionService(SubmissionRepository submissionRepository,
+                             SubmissionFileRepository submissionFileRepository,
+                             StorageService storageService,
+                             TeacherFeedbackRepository teacherFeedbackRepository) {
+        this.submissionRepository = submissionRepository;
+        this.submissionFileRepository = submissionFileRepository;
+        this.storageService = storageService;
+        this.teacherFeedbackRepository = teacherFeedbackRepository;
+    }
+
+    public void setTeacherFeedbackRepository(TeacherFeedbackRepository teacherFeedbackRepository) {
+        this.teacherFeedbackRepository = teacherFeedbackRepository;
+    }
 
     @Value("${app.auth.student-pattern:^[A-Za-z](\\d{6})@(rguktn\\.ac\\.in|rguktrkv\\.ac\\.in|rguktong\\.ac\\.in|rguktsklm\\.ac\\.in|rgukt\\.in)$}")
     private String studentPatternRegex;
@@ -399,6 +430,114 @@ public class SubmissionService {
         if (filename == null) return "";
         int dot = filename.lastIndexOf('.');
         return (dot >= 0) ? filename.substring(dot) : "";
+    }
+
+    /**
+     * Retrieves a paginated list of student submissions combined with PDF file metadata
+     * and teacher feedback/review status for the teacher & admin review page.
+     */
+    @Transactional(readOnly = true)
+    public TeacherSubmissionPageResponse getPaginatedSubmissions(int page, int size, String week, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = (size <= 0) ? 20 : Math.min(size, 100);
+
+        Integer parsedWeekNumber = null;
+        if (week != null && !week.trim().isEmpty() && !week.equalsIgnoreCase("ALL")) {
+            EvaluationService.WeekInfo weekInfo = EvaluationService.normalizeWeek(week);
+            if (weekInfo.weekNumber() != 999) {
+                parsedWeekNumber = weekInfo.weekNumber();
+            } else {
+                try {
+                    parsedWeekNumber = Integer.parseInt(week.replaceAll("\\D+", ""));
+                } catch (Exception ignored) {}
+            }
+        }
+
+        Specification<Submission> spec = SubmissionSpecification.withWeekAndSearch(parsedWeekNumber, search);
+        PageRequest pageRequest = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Submission> submissionPage = submissionRepository.findAll(spec, pageRequest);
+
+        List<Submission> submissions = submissionPage.getContent();
+        if (submissions.isEmpty()) {
+            return TeacherSubmissionPageResponse.builder()
+                    .content(Collections.emptyList())
+                    .currentPage(safePage)
+                    .pageSize(safeSize)
+                    .totalElements(submissionPage.getTotalElements())
+                    .totalPages(submissionPage.getTotalPages())
+                    .build();
+        }
+
+        // Batch fetch feedbacks for all students present in the current page
+        Set<String> studentIds = submissions.stream()
+                .map(s -> s.getStudentId().toUpperCase().trim())
+                .collect(Collectors.toSet());
+
+        Map<String, TeacherFeedback> feedbackMap = new HashMap<>();
+        if (teacherFeedbackRepository != null && !studentIds.isEmpty()) {
+            List<TeacherFeedback> feedbacks = teacherFeedbackRepository.findByStudentIdIn(studentIds);
+            for (TeacherFeedback fb : feedbacks) {
+                EvaluationService.WeekInfo normWeek = EvaluationService.normalizeWeek(fb.getWeek());
+                String key = fb.getStudentId().toUpperCase().trim() + "#" + normWeek.displayName().toUpperCase();
+                feedbackMap.put(key, fb);
+            }
+        }
+
+        List<TeacherSubmissionRecordDTO> recordDTOs = submissions.stream().map(sub -> {
+            // Find PDF file if present
+            SubmissionFile pdfFile = null;
+            if (sub.getFiles() != null) {
+                for (SubmissionFile f : sub.getFiles()) {
+                    if (f.getFileType() == FileType.PDF_REPORT ||
+                            (f.getFileExtension() != null && f.getFileExtension().equalsIgnoreCase(".pdf"))) {
+                        pdfFile = f;
+                        break;
+                    }
+                }
+            }
+
+            // Find matching teacher feedback: studentId + Week N
+            String feedbackKey = sub.getStudentId().toUpperCase().trim() + "#WEEK " + sub.getWeek();
+            TeacherFeedback fb = feedbackMap.get(feedbackKey);
+
+            User user = sub.getUser();
+            String studentName = (user != null && user.getName() != null) ? user.getName() : sub.getStudentId();
+            String studentEmail = (user != null) ? user.getEmail() : null;
+            String studentProfilePic = (user != null) ? user.getProfilePicture() : null;
+
+            return TeacherSubmissionRecordDTO.builder()
+                    .id(sub.getId())
+                    .studentId(sub.getStudentId())
+                    .studentName(studentName)
+                    .studentEmail(studentEmail)
+                    .studentProfilePicture(studentProfilePic)
+                    .week(sub.getWeek())
+                    .weekDisplay("Week " + sub.getWeek())
+                    .year(sub.getYear() != null ? sub.getYear().name() : null)
+                    .section(sub.getSection())
+                    .branch(sub.getBranch())
+                    .version(sub.getVersion())
+                    .submittedAt(sub.getCreatedAt())
+                    .submissionUpdatedAt(sub.getUpdatedAt())
+                    .hasPdf(pdfFile != null)
+                    .pdfFileId(pdfFile != null ? pdfFile.getId() : null)
+                    .pdfFileName(pdfFile != null ? pdfFile.getOriginalFilename() : null)
+                    .pdfSizeBytes(pdfFile != null ? pdfFile.getFileSizeBytes() : null)
+                    .feedbackId(fb != null ? fb.getId() : null)
+                    .reviewed(fb != null && fb.isReviewed())
+                    .feedbackText(fb != null ? fb.getFeedbackText() : null)
+                    .teacherEmail(fb != null ? fb.getTeacherEmail() : null)
+                    .feedbackUpdatedAt(fb != null ? fb.getUpdatedAt() : null)
+                    .build();
+        }).collect(Collectors.toList());
+
+        return TeacherSubmissionPageResponse.builder()
+                .content(recordDTOs)
+                .currentPage(submissionPage.getNumber())
+                .pageSize(safeSize)
+                .totalElements(submissionPage.getTotalElements())
+                .totalPages(submissionPage.getTotalPages())
+                .build();
     }
 
     public record DownloadableFile(Resource resource, String filename, String contentType) {}

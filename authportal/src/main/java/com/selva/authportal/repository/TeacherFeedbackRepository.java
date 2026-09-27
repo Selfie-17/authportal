@@ -13,4 +13,6 @@ public interface TeacherFeedbackRepository extends JpaRepository<TeacherFeedback
     Optional<TeacherFeedback> findByStudentIdAndWeek(String studentId, String week);
 
     List<TeacherFeedback> findByStudentId(String studentId);
+
+    List<TeacherFeedback> findByStudentIdIn(java.util.Collection<String> studentIds);
 }
