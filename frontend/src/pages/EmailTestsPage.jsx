@@ -204,11 +204,15 @@ export default function EmailTestsPage() {
               <span className="smtp-status-dot" />
               {smtpStatus?.configured ? (
                 <>
-                  <span>Gmail SMTP Connected</span>
+                  <span>
+                    {smtpStatus?.transport === 'GMAIL_REST_API'
+                      ? '⚡ Gmail REST API (Port 443 HTTPS)'
+                      : 'Gmail SMTP (Port 587)'}
+                  </span>
                   {smtpStatus.sender && <span className="smtp-sender-tag">{smtpStatus.sender}</span>}
                 </>
               ) : (
-                <span>Gmail SMTP Not Configured</span>
+                <span>Email Not Configured</span>
               )}
             </span>
           </div>

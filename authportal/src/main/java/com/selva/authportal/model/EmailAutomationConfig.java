@@ -49,6 +49,12 @@ public class EmailAutomationConfig {
     @Builder.Default
     private String provider = "all";
 
+    @Column(name = "gmail_refresh_token", length = 512)
+    private String gmailRefreshToken;
+
+    @Column(name = "gmail_connected_email", length = 255)
+    private String gmailConnectedEmail;
+
     @Column(name = "updated_by", length = 255)
     private String updatedBy;
 

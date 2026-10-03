@@ -57,6 +57,9 @@ class EmailReportControllerTest {
     private ZipReportEmailService zipReportEmailService;
 
     @Mock
+    private com.selva.authportal.email.GmailRestApiService gmailRestApiService;
+
+    @Mock
     private UserDetails userDetails;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -67,7 +70,8 @@ class EmailReportControllerTest {
                 emailService,
                 reportEmailService,
                 emailBatchService,
-                zipReportEmailService
+                zipReportEmailService,
+                gmailRestApiService
         );
 
         HandlerMethodArgumentResolver authPrincipalResolver = new HandlerMethodArgumentResolver() {

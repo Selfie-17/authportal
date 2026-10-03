@@ -37,6 +37,7 @@ public class EmailReportController {
     private final ReportEmailService reportEmailService;
     private final EmailBatchService emailBatchService;
     private final com.selva.authportal.service.ZipReportEmailService zipReportEmailService;
+    private final com.selva.authportal.email.GmailRestApiService gmailRestApiService;
 
     /**
      * Checks if Gmail SMTP is configured and ready to dispatch emails.
@@ -255,5 +256,45 @@ public class EmailReportController {
 
         ZipReportsSendResponse response = zipReportEmailService.sendZipReports(request, file, filePath, teacherEmail);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Generates the Google OAuth consent URL for connecting a Gmail account via Gmail REST API over HTTPS (Port 443).
+     * Bypasses Render's outbound SMTP block completely.
+     */
+    @GetMapping("/oauth/connect-url")
+    public ResponseEntity<Map<String, String>> getOAuthConnectUrl(@RequestParam("redirectUri") String redirectUri) {
+        String authUrl = gmailRestApiService.buildAuthorizationUrl(redirectUri);
+        return ResponseEntity.ok(Map.of("url", authUrl));
+    }
+
+    /**
+     * Exchanges a Google OAuth authorization code for a persistent refresh token to enable Gmail REST API dispatching.
+     */
+    @PostMapping("/oauth/exchange-code")
+    public ResponseEntity<Map<String, Object>> exchangeOAuthCode(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestBody Map<String, String> body
+    ) {
+        String code = body.get("code");
+        String redirectUri = body.get("redirectUri");
+        String adminEmail = (userDetails != null) ? userDetails.getUsername() : null;
+        Map<String, Object> result = gmailRestApiService.exchangeAuthorizationCode(code, redirectUri, adminEmail);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Checks Gmail REST API OAuth authorization status.
+     */
+    @GetMapping("/oauth/status")
+    public ResponseEntity<Map<String, Object>> getOAuthStatus() {
+        boolean configured = gmailRestApiService.isConfigured();
+        String email = gmailRestApiService.getConnectedEmail();
+        return ResponseEntity.ok(Map.of(
+                "configured", configured,
+                "connectedEmail", email != null ? email : "",
+                "transport", configured ? "GMAIL_REST_API" : "GMAIL_SMTP",
+                "renderFreeTierCompatible", configured
+        ));
     }
 }

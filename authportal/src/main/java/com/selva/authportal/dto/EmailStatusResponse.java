@@ -20,6 +20,9 @@ public class EmailStatusResponse {
     private String host = "smtp.gmail.com";
     @Builder.Default
     private int port = 587;
+    @Builder.Default
+    private String transport = "GMAIL_SMTP"; // GMAIL_REST_API or GMAIL_SMTP
+    private boolean renderFreeTierCompatible;
     private String sender;
     private String senderName;
     private String message;

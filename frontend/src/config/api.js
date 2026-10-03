@@ -62,6 +62,10 @@ export const API_ENDPOINTS = {
     `${API_BASE_URL}/api/email/preview/${encodeURIComponent(week)}/${encodeURIComponent(studentId)}`,
   EMAIL_REPORTS_ZIP_PARSE: `${API_BASE_URL}/api/email/reports-zip/parse`,
   EMAIL_REPORTS_ZIP_SEND: `${API_BASE_URL}/api/email/reports-zip/send`,
+  EMAIL_OAUTH_CONNECT_URL: (redirectUri) =>
+    `${API_BASE_URL}/api/email/oauth/connect-url?redirectUri=${encodeURIComponent(redirectUri)}`,
+  EMAIL_OAUTH_EXCHANGE_CODE: `${API_BASE_URL}/api/email/oauth/exchange-code`,
+  EMAIL_OAUTH_STATUS: `${API_BASE_URL}/api/email/oauth/status`,
 };
 
 

@@ -25,6 +25,9 @@ class GmailEmailServiceTest {
     @Mock
     private JavaMailSender mailSender;
 
+    @Mock
+    private GmailRestApiService gmailRestApiService;
+
     private EmailProperties emailProperties;
     private GmailEmailService gmailEmailService;
 
@@ -38,7 +41,7 @@ class GmailEmailServiceTest {
         emailProperties.setSenderName("RGUKT Academic Portal");
         emailProperties.setSenderEmail("faculty@rguktn.ac.in");
 
-        gmailEmailService = new GmailEmailService(mailSender, emailProperties);
+        gmailEmailService = new GmailEmailService(mailSender, emailProperties, gmailRestApiService);
     }
 
     @Test

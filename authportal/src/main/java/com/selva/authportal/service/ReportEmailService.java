@@ -50,16 +50,27 @@ public class ReportEmailService {
      */
     public EmailStatusResponse getStatus() {
         boolean configured = emailService.isConfigured();
+        String transport = emailService.getTransport();
+        boolean renderCompatible = "GMAIL_REST_API".equalsIgnoreCase(transport);
+        String msg;
+        if (!configured) {
+            msg = "Email service is not configured. For Render Free Tier, please set GMAIL_REFRESH_TOKEN or connect via Google OAuth (HTTPS Port 443).";
+        } else if (renderCompatible) {
+            msg = "Gmail REST API (HTTPS Port 443) is connected. 100% compatible with Render Free Tier!";
+        } else {
+            msg = "Gmail SMTP (Port 587) is configured. Note: On Render Free Tier, outbound SMTP is blocked; use Gmail REST API (Port 443) instead.";
+        }
+
         return EmailStatusResponse.builder()
-                .provider("GMAIL_SMTP")
+                .provider(renderCompatible ? "GMAIL_REST_API" : "GMAIL_SMTP")
+                .transport(transport)
+                .renderFreeTierCompatible(renderCompatible)
                 .configured(configured)
                 .host(emailService.getHost())
                 .port(emailService.getPort())
                 .sender(emailService.getSenderEmail())
                 .senderName(emailService.getSenderName())
-                .message(configured
-                        ? "Gmail SMTP service is connected and ready to dispatch evaluation reports."
-                        : "Gmail SMTP is not configured. Please supply MAIL_USERNAME and MAIL_PASSWORD in your .env file.")
+                .message(msg)
                 .build();
     }
 

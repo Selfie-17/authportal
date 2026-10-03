@@ -33,6 +33,13 @@ public interface EmailService {
     int getPort();
 
     /**
+     * Gets the active transport mechanism ("GMAIL_REST_API" for HTTPS Port 443, or "GMAIL_SMTP" for Port 587).
+     */
+    default String getTransport() {
+        return "GMAIL_SMTP";
+    }
+
+    /**
      * Sends a plain-text email.
      */
     EmailSendResult sendEmail(String to, String subject, String body);

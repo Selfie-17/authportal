@@ -475,6 +475,21 @@ export default function EmailReportsPage() {
     }
   };
 
+  const [connectingOAuth, setConnectingOAuth] = useState(false);
+  const handleConnectGmailOAuth = async () => {
+    try {
+      setConnectingOAuth(true);
+      const redirectUri = `${window.location.origin}/oauth/gmail-callback`;
+      const res = await emailService.getOAuthConnectUrl(redirectUri);
+      if (res?.url) {
+        window.location.href = res.url;
+      }
+    } catch (err) {
+      showToast('error', err.message || 'Failed to initiate Google OAuth.');
+      setConnectingOAuth(false);
+    }
+  };
+
   // Attachment count calculation
   const attachmentCount =
     (attachHtmlReport ? 1 : 0) + (attachEvaluationSummary ? 1 : 0) + (attachJsonReport ? 1 : 0);
@@ -1266,24 +1281,39 @@ export default function EmailReportsPage() {
         {activeTab === 'settings' && (
           <div className="settings-tab-container">
             <div className="settings-grid">
-              {/* Card 1: Gmail SMTP Status */}
+              {/* Card 1: Gmail Service & Integration Status */}
               <div className="academic-card settings-card">
-                <div className="card-header">
-                  <h2>Gmail SMTP Status</h2>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ margin: 0 }}>Gmail Service & Transport Status</h2>
+                  {smtpStatus?.renderFreeTierCompatible ? (
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '0.2rem 0.55rem', borderRadius: '6px' }}>
+                      ⚡ Render Free Tier Compatible (Port 443)
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '0.2rem 0.55rem', borderRadius: '6px' }}>
+                      ⚠️ Port 587 (Blocked on Render Free Tier)
+                    </span>
+                  )}
                 </div>
                 <div className="settings-body">
                   <div className="smtp-diagnostic-list">
                     <div className="diagnostic-item">
-                      <span className="diag-label">Provider</span>
-                      <strong className="diag-value">Gmail SMTP</strong>
+                      <span className="diag-label">Active Transport</span>
+                      <strong className="diag-value">
+                        {smtpStatus?.transport === 'GMAIL_REST_API'
+                          ? 'Gmail REST API (HTTPS Port 443)'
+                          : 'Gmail SMTP (Port 587)'}
+                      </strong>
                     </div>
                     <div className="diagnostic-item">
-                      <span className="diag-label">Host</span>
+                      <span className="diag-label">Host / Endpoint</span>
                       <strong className="diag-value">{smtpStatus?.host || 'smtp.gmail.com'}</strong>
                     </div>
                     <div className="diagnostic-item">
-                      <span className="diag-label">Port</span>
-                      <strong className="diag-value">{smtpStatus?.port || 587} (STARTTLS)</strong>
+                      <span className="diag-label">Port & Security</span>
+                      <strong className="diag-value">
+                        {smtpStatus?.transport === 'GMAIL_REST_API' ? '443 (HTTPS TLS)' : `${smtpStatus?.port || 587} (STARTTLS)`}
+                      </strong>
                     </div>
                     <div className="diagnostic-item">
                       <span className="diag-label">Sender Account</span>
@@ -1301,27 +1331,51 @@ export default function EmailReportsPage() {
                     </div>
                   </div>
 
-                  <div className="smtp-help-box">
-                    <h4>💡 How to configure Gmail SMTP:</h4>
+                  {/* Connect with Google OAuth Action Card */}
+                  <div
+                    style={{
+                      marginTop: '1.25rem',
+                      padding: '1.25rem',
+                      background: '#f0f7ff',
+                      border: '1px solid #bfdbfe',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span>🌐</span>
+                          <span>Bypass Render Outbound SMTP Block (Port 443 HTTPS)</span>
+                        </h4>
+                        <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#475569' }}>
+                          Render Free Tier blocks outbound SMTP ports (25, 465, 587). Authorize Google Gmail REST API to send directly over port 443 without paying!
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleConnectGmailOAuth}
+                        disabled={connectingOAuth}
+                        className="btn-primary"
+                        style={{ padding: '0.5rem 1rem', fontSize: '0.82rem' }}
+                      >
+                        {connectingOAuth ? 'Redirecting...' : '🔗 Connect Gmail Account (Port 443)'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="smtp-help-box" style={{ marginTop: '1.25rem' }}>
+                    <h4>💡 How to configure for Render Free Tier:</h4>
                     <ol>
-                      <li>Enable 2-Step Verification on your institutional/Google account.</li>
                       <li>
-                        Go to{' '}
-                        <a
-                          href="https://myaccount.google.com/apppasswords"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Google App Passwords
+                        <strong>Option 1 (One-Click):</strong> Click the <strong>"Connect Gmail Account"</strong> button above, sign in with your Google account, and grant access. The token is saved automatically!
+                      </li>
+                      <li>
+                        <strong>Option 2 (Render Environment):</strong> Visit{' '}
+                        <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noreferrer">
+                          Google OAuth Playground
                         </a>
-                        .
+                        , select scope <code>https://www.googleapis.com/auth/gmail.send</code> with your Client ID/Secret, authorize, and set <code>GMAIL_REFRESH_TOKEN</code> in your Render Environment Variables.
                       </li>
-                      <li>Generate a 16-character App Password for "Mail".</li>
-                      <li>
-                        Set <code>MAIL_USERNAME</code> and <code>MAIL_PASSWORD</code> in your{' '}
-                        <code>.env</code> file.
-                      </li>
-                      <li>Restart the backend server.</li>
                     </ol>
                   </div>
                 </div>

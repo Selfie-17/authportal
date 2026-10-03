@@ -367,4 +367,50 @@ export const emailService = {
     }
     return data;
   },
+
+  /**
+   * Retrieves Google OAuth consent URL for Gmail REST API (Port 443 HTTPS).
+   */
+  async getOAuthConnectUrl(redirectUri) {
+    const response = await fetch(API_ENDPOINTS.EMAIL_OAUTH_CONNECT_URL(redirectUri), {
+      method: 'GET',
+      headers: this.getHeaders(false),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to generate Gmail OAuth URL: HTTP ${response.status}`);
+    }
+    return await response.json();
+  },
+
+  /**
+   * Exchanges authorization code for persistent Gmail API refresh token.
+   */
+  async exchangeOAuthCode(code, redirectUri) {
+    const response = await fetch(API_ENDPOINTS.EMAIL_OAUTH_EXCHANGE_CODE, {
+      method: 'POST',
+      headers: this.getHeaders(false),
+      body: JSON.stringify({ code, redirectUri }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message || `Failed to authorize Gmail: HTTP ${response.status}`);
+    }
+    return data;
+  },
+
+  /**
+   * Checks Gmail REST API OAuth status.
+   */
+  async getOAuthStatus() {
+    try {
+      const response = await fetch(API_ENDPOINTS.EMAIL_OAUTH_STATUS, {
+        method: 'GET',
+        headers: this.getHeaders(false),
+      });
+      if (!response.ok) return { configured: false };
+      return await response.json();
+    } catch {
+      return { configured: false };
+    }
+  },
 };

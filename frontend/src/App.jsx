@@ -10,6 +10,7 @@ import ProfilePage from './pages/ProfilePage';
 import EmailReportsPage from './pages/EmailReportsPage';
 import EmailTestsPage from './pages/EmailTestsPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
+import GmailOAuthCallbackPage from './pages/GmailOAuthCallbackPage';
 import { authService } from './services/authService';
 import './styles/index.css';
 import './styles/auth.css';
@@ -110,6 +111,7 @@ export default function App() {
           }
         />
         <Route path="/email_tests" element={<Navigate to="/email-tests" replace />} />
+        <Route path="/oauth/gmail-callback" element={<GmailOAuthCallbackPage />} />
 
         {/* Admin Console */}
         <Route

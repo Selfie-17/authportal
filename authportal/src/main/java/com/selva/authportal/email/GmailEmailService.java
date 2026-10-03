@@ -26,14 +26,30 @@ public class GmailEmailService implements EmailService {
 
     private final JavaMailSender mailSender;
     private final EmailProperties emailProperties;
+    private final GmailRestApiService gmailRestApiService;
 
     @Override
     public boolean isConfigured() {
-        return emailProperties.isConfigured();
+        return (gmailRestApiService != null && gmailRestApiService.isConfigured())
+                || emailProperties.isConfigured();
+    }
+
+    @Override
+    public String getTransport() {
+        if (gmailRestApiService != null && gmailRestApiService.isConfigured()) {
+            return "GMAIL_REST_API";
+        }
+        return "GMAIL_SMTP";
     }
 
     @Override
     public String getSenderEmail() {
+        if (gmailRestApiService != null) {
+            String connected = gmailRestApiService.getConnectedEmail();
+            if (connected != null && !connected.isBlank()) {
+                return connected;
+            }
+        }
         return emailProperties.getEffectiveSenderEmail();
     }
 
@@ -44,11 +60,17 @@ public class GmailEmailService implements EmailService {
 
     @Override
     public String getHost() {
+        if (gmailRestApiService != null && gmailRestApiService.isConfigured()) {
+            return "gmail.googleapis.com";
+        }
         return emailProperties.getHost();
     }
 
     @Override
     public int getPort() {
+        if (gmailRestApiService != null && gmailRestApiService.isConfigured()) {
+            return 443;
+        }
         return emailProperties.getPort();
     }
 
@@ -156,22 +178,35 @@ public class GmailEmailService implements EmailService {
                 }
             }
 
-            log.info("Dispatching email via Gmail SMTP to '{}' with subject '{}' and {} attachments...",
-                    targetEmail, subject, attachedFiles.size());
+            boolean useRestApi = (gmailRestApiService != null && gmailRestApiService.isConfigured());
+            String messageId;
 
-            mailSender.send(mimeMessage);
+            if (useRestApi) {
+                log.info("Dispatching email via Gmail REST API (HTTPS Port 443) to '{}' with subject '{}' and {} attachments...",
+                        targetEmail, subject, attachedFiles.size());
+                String googleId = gmailRestApiService.sendMimeMessage(mimeMessage);
+                messageId = "<" + googleId + "@gmail.googleapis.com>";
+                log.info("Email successfully dispatched via Gmail REST API (Port 443) to {}. Google Message-ID: {}", targetEmail, messageId);
+            } else {
+                log.info("Dispatching email via Gmail SMTP to '{}' with subject '{}' and {} attachments...",
+                        targetEmail, subject, attachedFiles.size());
 
-            String messageId = mimeMessage.getMessageID();
-            if (messageId == null || messageId.isBlank()) {
-                messageId = "<gmail-" + UUID.randomUUID() + "@smtp.gmail.com>";
+                mailSender.send(mimeMessage);
+
+                messageId = mimeMessage.getMessageID();
+                if (messageId == null || messageId.isBlank()) {
+                    messageId = "<gmail-" + UUID.randomUUID() + "@smtp.gmail.com>";
+                }
+
+                log.info("Email successfully sent via Gmail SMTP to {}. Message-ID: {}", targetEmail, messageId);
             }
-
-            log.info("Email successfully sent via Gmail SMTP to {}. Message-ID: {}", targetEmail, messageId);
 
             return EmailSendResult.builder()
                     .success(true)
                     .messageId(messageId)
-                    .message("Email dispatched successfully via Gmail SMTP.")
+                    .message(useRestApi
+                            ? "Email dispatched successfully via Gmail REST API (Port 443 HTTPS)."
+                            : "Email dispatched successfully via Gmail SMTP.")
                     .recipientEmail(targetEmail)
                     .subject(subject)
                     .attachedFiles(attachedFiles)
@@ -179,9 +214,14 @@ public class GmailEmailService implements EmailService {
                     .build();
 
         } catch (Exception e) {
-            log.error("Gmail SMTP dispatch failed for recipient '{}': {}", targetEmail, e.getMessage());
-            // Return actual Gmail SMTP error
-            throw new RuntimeException("Gmail SMTP error: " + e.getMessage(), e);
+            String errorMsg = e.getMessage();
+            log.error("Email dispatch failed for recipient '{}': {}", targetEmail, errorMsg);
+            if (errorMsg != null && (errorMsg.contains("587") || errorMsg.contains("SocketTimeoutException") || errorMsg.contains("Connect timed out"))) {
+                throw new RuntimeException("Gmail SMTP error: Connection to smtp.gmail.com:587 timed out. " +
+                        "Note: Render Free Tier blocks outbound SMTP ports (25, 465, 587). " +
+                        "Please configure Gmail REST API over HTTPS (Port 443) by setting GMAIL_REFRESH_TOKEN in Render environment variables or clicking 'Connect Gmail Account' in Email Settings.", e);
+            }
+            throw new RuntimeException("Gmail SMTP error: " + errorMsg, e);
         }
     }
 
