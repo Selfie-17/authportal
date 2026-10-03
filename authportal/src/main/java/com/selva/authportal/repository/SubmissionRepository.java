@@ -22,6 +22,8 @@ public interface SubmissionRepository extends JpaRepository<Submission, Long>, J
 
     Optional<Submission> findByUserIdAndWeekAndYearAndSection(Long userId, Integer week, YearLevel year, Integer section);
 
+    List<Submission> findByWeek(Integer week);
+
     List<Submission> findByWeekAndSectionOrderByStudentIdAsc(Integer week, Integer section);
 
     List<Submission> findByWeekAndYearAndSectionOrderByStudentIdAsc(Integer week, YearLevel year, Integer section);

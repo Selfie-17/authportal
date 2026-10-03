@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
  * Provides role editing and account enable/disable operations.
  * Preserves exact API handlers and safeguards.
  */
-export default function UserActionsMenu({ user, isCurrentUser, onRoleChange, onStatusToggle }) {
+export default function UserActionsMenu({ user, isCurrentUser, onRoleChange, onStatusToggle, onSendTestEmail }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showRoleSubmenu, setShowRoleSubmenu] = useState(false);
   const menuRef = useRef(null);
@@ -66,6 +66,24 @@ export default function UserActionsMenu({ user, isCurrentUser, onRoleChange, onS
 
       {isOpen && (
         <div className="action-dropdown-menu" role="menu">
+          {/* Quick Test Email to this user */}
+          {onSendTestEmail && user.email && (
+            <>
+              <button
+                type="button"
+                className="action-menu-item"
+                onClick={() => {
+                  onSendTestEmail(user.email);
+                  setIsOpen(false);
+                }}
+                role="menuitem"
+              >
+                <span>✉️ Send Test Email</span>
+              </button>
+              <div className="action-dropdown-divider" />
+            </>
+          )}
+
           {/* Role Change Submenu / Options */}
           <div className="action-dropdown-section">
             <span className="action-dropdown-label">Change Role</span>

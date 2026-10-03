@@ -7,6 +7,8 @@ import TeacherSubmissionsPage from './pages/TeacherSubmissionsPage';
 import TeacherFeedbackPage from './pages/TeacherFeedbackPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import ProfilePage from './pages/ProfilePage';
+import EmailReportsPage from './pages/EmailReportsPage';
+import EmailTestsPage from './pages/EmailTestsPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import { authService } from './services/authService';
 import './styles/index.css';
@@ -86,6 +88,28 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* Email Reports Distribution Center */}
+        <Route
+          path="/email-reports"
+          element={
+            <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+              <EmailReportsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/email_reports" element={<Navigate to="/email-reports" replace />} />
+
+        {/* Email Testing Center */}
+        <Route
+          path="/email-tests"
+          element={
+            <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+              <EmailTestsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/email_tests" element={<Navigate to="/email-tests" replace />} />
 
         {/* Admin Console */}
         <Route

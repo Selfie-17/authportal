@@ -50,6 +50,7 @@ public class EvaluationService {
     private final com.selva.authportal.repository.UserRepository userRepository;
     private final com.selva.authportal.repository.SubmissionRepository submissionRepository;
     private final StorageService storageService;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     // Regex for parsing week identifier e.g. "week-01", "week-2", "Week 5", "week_10", "1"
     private static final Pattern WEEK_NUMBER_PATTERN = Pattern.compile("(?i)(?:week[_-]?0*(\\d+)|\\b(\\d+)\\b)");
@@ -910,6 +911,10 @@ public class EvaluationService {
                 if (request.getTotalScore() != null) eval.setTotalScore(request.getTotalScore().trim());
                 evaluationRepository.save(eval);
             }
+        }
+
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new com.selva.authportal.event.FeedbackSavedEvent(normalizedId, weekInfo.displayName()));
         }
 
         return TeacherFeedbackResponse.fromEntity(saved);

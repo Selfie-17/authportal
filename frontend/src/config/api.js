@@ -42,6 +42,26 @@ export const API_ENDPOINTS = {
   TEACHER_EVALUATIONS_SCORE: `${API_BASE_URL}/api/teacher/evaluations/score`,
   TEACHER_EVALUATIONS_PDF: (studentId, week) =>
     `${API_BASE_URL}/api/teacher/evaluations/pdf?studentId=${encodeURIComponent(studentId)}&week=${encodeURIComponent(week)}`,
+  // Gmail SMTP Email Report endpoints
+  EMAIL_STATUS: `${API_BASE_URL}/api/email/status`,
+  EMAIL_SEND: `${API_BASE_URL}/api/email/send`,
+  EMAIL_SEND_STUDENT_REPORT: `${API_BASE_URL}/api/email/send-student-report`,
+  EMAIL_SEND_CUSTOM_FILE: `${API_BASE_URL}/api/email/send-custom-file`,
+  EMAIL_SEND_RAW: `${API_BASE_URL}/api/email/send-raw`,
+  EMAIL_TEST_REPORT: `${API_BASE_URL}/api/email/test-report`,
+  EMAIL_BATCH_PREVIEW: `${API_BASE_URL}/api/email/batch/preview`,
+  EMAIL_BATCH_SEND: `${API_BASE_URL}/api/email/send-batch`,
+  EMAIL_HISTORY: `${API_BASE_URL}/api/email/history`,
+  EMAIL_RETRY: (id) => `${API_BASE_URL}/api/email/retry/${id}`,
+  EMAIL_BATCHES: `${API_BASE_URL}/api/email/batches`,
+  EMAIL_BATCH_DETAILS: (id) => `${API_BASE_URL}/api/email/batches/${id}`,
+  EMAIL_BATCH_RETRY: (id) => `${API_BASE_URL}/api/email/batches/${id}/retry`,
+  EMAIL_STATISTICS: `${API_BASE_URL}/api/email/statistics`,
+  EMAIL_AUTOMATION: `${API_BASE_URL}/api/email/automation`,
+  EMAIL_PREVIEW: (week, studentId) =>
+    `${API_BASE_URL}/api/email/preview/${encodeURIComponent(week)}/${encodeURIComponent(studentId)}`,
+  EMAIL_REPORTS_ZIP_PARSE: `${API_BASE_URL}/api/email/reports-zip/parse`,
+  EMAIL_REPORTS_ZIP_SEND: `${API_BASE_URL}/api/email/reports-zip/send`,
 };
 
 

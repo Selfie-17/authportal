@@ -9,11 +9,12 @@ import { adminService } from '../services/adminService';
 import { authService } from '../services/authService';
 import { evaluationService } from '../services/evaluationService';
 import { submissionService } from '../services/submissionService';
+import { emailService } from '../services/emailService';
 import { extractStudentIdFromEmail } from '../utils/studentDataHelper';
 import '../styles/portal.css';
 
 export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions' | 'feedbacks'
+  const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions' | 'feedbacks' | 'emailTest'
   const [stats, setStats] = useState({
     totalUsers: 0,
     studentCount: 0,
@@ -71,6 +72,139 @@ export default function AdminDashboardPage() {
   const [bannerErr, setBannerErr] = useState(null);
 
   const currentUser = authService.getUser() || {};
+
+  // Test Email State (Admin Console)
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [testEmailSubject, setTestEmailSubject] = useState('');
+  const [testEmailHtml, setTestEmailHtml] = useState(
+`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 20px;">
+    <h2 style="color: #1e3a8a; margin: 0; font-size: 20px;">RGUKT Academic Portal</h2>
+    <span style="color: #64748b; font-size: 13px;">System Administration Notification</span>
+  </div>
+  <p style="color: #334155; font-size: 15px; line-height: 1.6;">Hello,</p>
+  <p style="color: #334155; font-size: 15px; line-height: 1.6;">This is a test notification email dispatched directly from the <strong>RGUKT Admin Console</strong> via <strong>Gmail SMTP</strong>.</p>
+  <div style="margin: 20px 0; padding: 14px 18px; background-color: #f0fdf4; border-left: 4px solid #22c55e; border-radius: 4px;">
+    <strong style="color: #166534; font-size: 14px;">SMTP Transmission Verified:</strong>
+    <p style="color: #15803d; font-size: 13px; margin: 4px 0 0 0;">Outbound transmission via smtp.gmail.com:587 is operational.</p>
+  </div>
+  <p style="color: #64748b; font-size: 13px; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+    Regards,<br />
+    <strong>RGUKT Academic Portal Administration</strong>
+  </p>
+</div>`
+  );
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState(null);
+  const [smtpStatus, setSmtpStatus] = useState(null);
+
+  const applyEmailTemplate = (type) => {
+    if (type === 'academic') {
+      setTestEmailSubject('RGUKT Academic Portal - Official System Notice');
+      setTestEmailHtml(
+`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 20px;">
+    <h2 style="color: #1e3a8a; margin: 0; font-size: 20px;">RGUKT Academic Portal</h2>
+    <span style="color: #64748b; font-size: 13px;">System Administration Notification</span>
+  </div>
+  <p style="color: #334155; font-size: 15px; line-height: 1.6;">Hello,</p>
+  <p style="color: #334155; font-size: 15px; line-height: 1.6;">This is a test notification email dispatched directly from the <strong>RGUKT Admin Console</strong> via <strong>Gmail SMTP</strong>.</p>
+  <div style="margin: 20px 0; padding: 14px 18px; background-color: #f0fdf4; border-left: 4px solid #22c55e; border-radius: 4px;">
+    <strong style="color: #166534; font-size: 14px;">SMTP Transmission Verified:</strong>
+    <p style="color: #15803d; font-size: 13px; margin: 4px 0 0 0;">Outbound transmission via smtp.gmail.com:587 is operational.</p>
+  </div>
+  <p style="color: #64748b; font-size: 13px; margin-top: 24px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+    Regards,<br />
+    <strong>RGUKT Academic Portal Administration</strong>
+  </p>
+</div>`
+      );
+    } else if (type === 'evaluation') {
+      setTestEmailSubject('Lab Evaluation Test Summary - Week 1');
+      setTestEmailHtml(
+`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <h2 style="color: #1e3a8a; margin: 0 0 10px 0;">RGUKT Academic Portal</h2>
+  <h3 style="color: #334155; margin: 0 0 16px 0; font-size: 16px;">Lab Evaluation Test Summary</h3>
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
+    <thead>
+      <tr style="background: #f1f5f9;">
+        <th style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: left;">Criteria</th>
+        <th style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: right;">Score</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Logic & Implementation</td>
+        <td style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: right; color: #16a34a; font-weight: bold;">10 / 10</td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Code Documentation</td>
+        <td style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: right; color: #16a34a; font-weight: bold;">10 / 10</td>
+      </tr>
+    </tbody>
+  </table>
+  <p style="color: #64748b; font-size: 12px;">This is a test evaluation template rendered via Gmail SMTP.</p>
+</div>`
+      );
+    } else if (type === 'minimal') {
+      setTestEmailSubject('Admin Console - SMTP Ping');
+      setTestEmailHtml(
+`<p style="font-family: sans-serif; font-size: 15px; color: #1e293b;">
+  Hello! This is a test email ping sent directly from the RGUKT Admin Console.
+</p>`
+      );
+    }
+  };
+
+  const loadSmtpStatus = useCallback(async () => {
+    try {
+      const res = await emailService.getStatus();
+      setSmtpStatus(res);
+    } catch (e) {
+      console.warn('Failed to load SMTP status', e);
+    }
+  }, []);
+
+  const handleSendTestEmail = async (e) => {
+    if (e) e.preventDefault();
+    if (!testEmailTo || !testEmailTo.trim()) {
+      setTestEmailResult({ success: false, message: 'Please specify a recipient email address.' });
+      return;
+    }
+
+    setTestEmailSending(true);
+    setTestEmailResult(null);
+
+    try {
+      const res = await emailService.sendEmail({
+        to: testEmailTo.trim(),
+        subject: testEmailSubject ? testEmailSubject.trim() : '',
+        body: testEmailHtml || '',
+        html: true,
+      });
+
+      if (res && res.success) {
+        setTestEmailResult({
+          success: true,
+          message: `Test email dispatched successfully to ${testEmailTo.trim()} via Gmail SMTP!`,
+          details: res,
+        });
+      } else {
+        setTestEmailResult({
+          success: false,
+          message: res?.errorMessage || 'Failed to dispatch email via Gmail SMTP.',
+          details: res,
+        });
+      }
+    } catch (err) {
+      setTestEmailResult({
+        success: false,
+        message: err.message || 'An unexpected error occurred during SMTP transmission.',
+      });
+    } finally {
+      setTestEmailSending(false);
+    }
+  };
 
   const loadStats = useCallback(async () => {
     try {
@@ -206,8 +340,10 @@ export default function AdminDashboardPage() {
       loadSubmissions();
     } else if (activeTab === 'feedbacks') {
       loadFeedbacks();
+    } else if (activeTab === 'emailTest') {
+      loadSmtpStatus();
     }
-  }, [activeTab, loadUsers, loadSubmissions, loadFeedbacks]);
+  }, [activeTab, loadUsers, loadSubmissions, loadFeedbacks, loadSmtpStatus]);
 
   // Client-side pagination slicing
   const paginatedUsers = useMemo(() => {
@@ -485,6 +621,14 @@ export default function AdminDashboardPage() {
             <span>Teacher Feedback Logs</span>
             <span className="admin-tab-badge">{stats.totalFeedbacks !== undefined ? stats.totalFeedbacks : feedbacks.length}</span>
           </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${activeTab === 'emailTest' ? 'active' : ''}`}
+            onClick={() => setActiveTab('emailTest')}
+          >
+            <span>✉️ Test Email</span>
+            <span className="admin-tab-badge">Single Recipient</span>
+          </button>
         </div>
 
         {/* ====================================================================== */}
@@ -659,6 +803,11 @@ export default function AdminDashboardPage() {
                               isCurrentUser={isCurrentUser}
                               onRoleChange={handleRoleChange}
                               onStatusToggle={handleStatusToggle}
+                              onSendTestEmail={(targetEmail) => {
+                                setTestEmailTo(targetEmail);
+                                setActiveTab('emailTest');
+                                setBannerMsg(`Target recipient set to: ${targetEmail}`);
+                              }}
                             />
                           </td>
                         </tr>
@@ -1185,6 +1334,376 @@ export default function AdminDashboardPage() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ====================================================================== */}
+        {/* TAB 4: TEST EMAIL TO SINGLE RECIPIENT (ADMIN CONSOLE)                 */}
+        {/* ====================================================================== */}
+        {activeTab === 'emailTest' && (
+          <div className="admin-card-container">
+            {/* Header Bar */}
+            <div
+              className="admin-card-header-bar"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                flexWrap: 'wrap',
+                gap: '1rem',
+              }}
+            >
+              <div>
+                <h2 className="admin-card-header-title">✉️ Send Test Email (Single Recipient)</h2>
+                <p className="admin-card-header-desc">
+                  Compose and dispatch custom HTML or plain-text test emails via Gmail SMTP. Test deliverability, custom HTML layout, and formatting.
+                </p>
+              </div>
+              <div>
+                <span className={`smtp-status-pill ${smtpStatus?.configured ? 'connected' : 'not-configured'}`}>
+                  <span className="smtp-status-dot" />
+                  {smtpStatus?.configured ? (
+                    <>
+                      <span>Gmail SMTP Connected</span>
+                      {smtpStatus.sender && <span className="smtp-sender-tag">{smtpStatus.sender}</span>}
+                    </>
+                  ) : (
+                    <span>Gmail SMTP Not Configured</span>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* Test Email Alert Result Banner */}
+            {testEmailResult && (
+              <div
+                style={{
+                  margin: '1.25rem 1.75rem 0 1.75rem',
+                  padding: '1rem 1.25rem',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  background: testEmailResult.success ? '#f0fdf4' : '#fef2f2',
+                  border: `1px solid ${testEmailResult.success ? '#bbf7d0' : '#fecaca'}`,
+                  color: testEmailResult.success ? '#166534' : '#991b1b',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '1.25rem' }}>{testEmailResult.success ? '✓' : '✕'}</span>
+                  <div>
+                    <h4 style={{ margin: '0 0 0.25rem 0', fontWeight: 700, fontSize: '0.95rem' }}>
+                      {testEmailResult.success ? 'Email Dispatched Successfully' : 'Email Transmission Failed'}
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.85rem' }}>{testEmailResult.message}</p>
+                    {testEmailResult.details?.messageId && (
+                      <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', fontFamily: 'monospace', opacity: 0.85 }}>
+                        Message ID: {testEmailResult.details.messageId}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTestEmailResult(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    fontSize: '1.1rem',
+                    cursor: 'pointer',
+                    color: 'inherit',
+                    padding: '0 0.25rem',
+                  }}
+                  title="Dismiss notification"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Main Tester Layout: 2 Columns on desktop */}
+            <div
+              className="admin-email-tester-grid"
+              style={{
+                padding: '1.5rem 1.75rem',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+                gap: '1.75rem',
+              }}
+            >
+              {/* Left Column: Form Controls */}
+              <div className="admin-email-form-col">
+                <form onSubmit={handleSendTestEmail}>
+                  {/* Recipient Email (Required) */}
+                  <div className="admin-email-field-group" style={{ marginBottom: '1.25rem' }}>
+                    <label style={{ display: 'block', fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', marginBottom: '0.4rem' }}>
+                      Recipient Email <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={testEmailTo}
+                      onChange={(e) => setTestEmailTo(e.target.value)}
+                      placeholder="Type recipient email (e.g. student@rguktn.ac.in or personal@gmail.com)"
+                      required
+                      className="admin-search-input"
+                      style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.9rem' }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Quick target:</span>
+                      {currentUser?.email && (
+                        <button
+                          type="button"
+                          onClick={() => setTestEmailTo(currentUser.email)}
+                          style={{
+                            background: '#f1f5f9',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '4px',
+                            padding: '0.15rem 0.5rem',
+                            fontSize: '0.72rem',
+                            cursor: 'pointer',
+                            color: '#334155',
+                          }}
+                        >
+                          Use my email ({currentUser.email})
+                        </button>
+                      )}
+                      {users.length > 0 && users[0].email !== currentUser?.email && (
+                        <button
+                          type="button"
+                          onClick={() => setTestEmailTo(users[0].email)}
+                          style={{
+                            background: '#f1f5f9',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '4px',
+                            padding: '0.15rem 0.5rem',
+                            fontSize: '0.72rem',
+                            cursor: 'pointer',
+                            color: '#334155',
+                          }}
+                        >
+                          Sample User ({users[0].email})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Subject (Optional) */}
+                  <div className="admin-email-field-group" style={{ marginBottom: '1.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
+                      <label style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                        Subject <span style={{ fontWeight: 400, color: '#64748b', fontSize: '0.78rem' }}>(Optional)</span>
+                      </label>
+                      <span style={{ fontSize: '0.74rem', color: '#94a3b8' }}>Defaults to "(No Subject)" if empty</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={testEmailSubject}
+                      onChange={(e) => setTestEmailSubject(e.target.value)}
+                      placeholder="e.g. RGUKT Academic Portal - Test Email (leave blank for default)"
+                      className="admin-search-input"
+                      style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.9rem' }}
+                    />
+                  </div>
+
+                  {/* HTML Content (Optional) */}
+                  <div className="admin-email-field-group" style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <label style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                        Message / HTML Input <span style={{ fontWeight: 400, color: '#64748b', fontSize: '0.78rem' }}>(Optional - HTML Supported)</span>
+                      </label>
+                    </div>
+
+                    {/* Quick Template Presets */}
+                    <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.74rem', color: '#64748b', alignSelf: 'center' }}>Presets:</span>
+                      <button
+                        type="button"
+                        onClick={() => applyEmailTemplate('academic')}
+                        className="btn-template-chip"
+                      >
+                        🏛️ Academic Notice
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyEmailTemplate('evaluation')}
+                        className="btn-template-chip"
+                      >
+                        📊 Evaluation Summary
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyEmailTemplate('minimal')}
+                        className="btn-template-chip"
+                      >
+                        ⚡ Minimal Ping
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTestEmailHtml('')}
+                        className="btn-template-chip"
+                        style={{ color: '#ef4444' }}
+                      >
+                        🗑️ Blank
+                      </button>
+                    </div>
+
+                    <textarea
+                      rows={14}
+                      value={testEmailHtml}
+                      onChange={(e) => setTestEmailHtml(e.target.value)}
+                      placeholder="Type or paste custom HTML code here... (optional)"
+                      spellCheck="false"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                        fontSize: '0.82rem',
+                        lineHeight: 1.5,
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#f8fafc',
+                        color: '#0f172a',
+                        resize: 'vertical',
+                      }}
+                    />
+                    <span style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '0.35rem', display: 'block' }}>
+                      Supports standard HTML tags (&lt;div&gt;, &lt;p&gt;, &lt;h1&gt;, &lt;table&gt;, &lt;a&gt;) and inline CSS styling. If left empty, an empty body will be sent.
+                    </span>
+                  </div>
+
+                  {/* Form Submission Actions */}
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <button
+                      type="submit"
+                      disabled={testEmailSending || !testEmailTo.trim()}
+                      className="btn-primary"
+                      style={{
+                        padding: '0.65rem 1.4rem',
+                        fontWeight: 700,
+                        fontSize: '0.9rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        background: '#2563eb',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: testEmailSending || !testEmailTo.trim() ? 'not-allowed' : 'pointer',
+                        opacity: testEmailSending || !testEmailTo.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {testEmailSending ? (
+                        <>
+                          <span className="spinner-small" />
+                          <span>Sending via Gmail SMTP...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>✉️ Send Test Email</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTestEmailTo('');
+                        setTestEmailSubject('');
+                        setTestEmailHtml('');
+                        setTestEmailResult(null);
+                      }}
+                      style={{
+                        padding: '0.65rem 1rem',
+                        background: '#f1f5f9',
+                        color: '#475569',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Clear Form
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Right Column: Live Render Preview */}
+              <div className="admin-email-preview-col" style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b' }}>
+                    Live Render Preview
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    WYSIWYG Email Client Appearance
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: '380px',
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Email Header Preview Simulation */}
+                  <div style={{ background: '#f8fafc', padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', marginBottom: '0.35rem' }}>
+                      <span style={{ width: '65px', color: '#64748b', fontWeight: 600 }}>From:</span>
+                      <span style={{ color: '#1e293b', fontWeight: 500 }}>
+                        {smtpStatus?.sender ? `${smtpStatus.sender} (via Gmail SMTP)` : 'RGUKT Academic Portal <noreply@rguktn.ac.in>'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', marginBottom: '0.35rem' }}>
+                      <span style={{ width: '65px', color: '#64748b', fontWeight: 600 }}>To:</span>
+                      <span style={{ color: testEmailTo ? '#1e293b' : '#94a3b8', fontStyle: testEmailTo ? 'normal' : 'italic' }}>
+                        {testEmailTo || '(Recipient email not specified yet)'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex' }}>
+                      <span style={{ width: '65px', color: '#64748b', fontWeight: 600 }}>Subject:</span>
+                      <span style={{ color: testEmailSubject ? '#0f172a' : '#94a3b8', fontWeight: testEmailSubject ? 700 : 400 }}>
+                        {testEmailSubject || '(No Subject - Optional)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Email Body Preview Sandbox */}
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: '1.25rem',
+                      overflowY: 'auto',
+                      background: '#ffffff',
+                    }}
+                  >
+                    {testEmailHtml && testEmailHtml.trim() ? (
+                      <div
+                        dangerouslySetInnerHTML={{ __html: testEmailHtml }}
+                        style={{ fontFamily: 'inherit' }}
+                      />
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#94a3b8' }}>
+                        <div style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>📄</div>
+                        <p style={{ margin: 0, fontSize: '0.85rem' }}>
+                          No message content entered (Message is optional).
+                        </p>
+                        <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: '#cbd5e1' }}>
+                          An empty body will be transmitted if left blank.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

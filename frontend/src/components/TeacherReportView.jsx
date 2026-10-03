@@ -4,6 +4,7 @@ import ExtractedTextViewer from './teacher/ExtractedTextViewer';
 import UploadedPdfViewer from './teacher/UploadedPdfViewer';
 import MarkdownReportRenderer from './teacher/MarkdownReportRenderer';
 import MathText from '../utils/mathRenderer';
+import EmailReportModal from './teacher/EmailReportModal';
 
 /**
  * Single Student Teacher Report Component.
@@ -33,6 +34,7 @@ export default function TeacherReportView({
   const [switchingProvider, setSwitchingProvider] = useState(false);
   const [error, setError] = useState(null);
   const [selectedProvider, setSelectedProvider] = useState(initialProvider);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   // Active view tab: 'evaluation' | 'side-by-side'
   const [activeTab, setActiveTab] = useState('evaluation');
@@ -1307,6 +1309,15 @@ export default function TeacherReportView({
 
           <button
             type="button"
+            className="btn-email-report-action"
+            onClick={() => setIsEmailModalOpen(true)}
+            title={`Email ${report.week} report for ${report.studentId} via Gmail SMTP`}
+          >
+            <span>📧</span> Email Report
+          </button>
+
+          <button
+            type="button"
             className="btn-delete-report-danger"
             onClick={handleDeleteReport}
             disabled={deleting}
@@ -1442,6 +1453,16 @@ export default function TeacherReportView({
           {renderEvaluationContent(false)}
         </div>
       )}
+
+      {/* Email Report Modal */}
+      <EmailReportModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        studentId={report.studentId}
+        week={report.week}
+        provider={selectedProvider || report.provider}
+        availableProviders={report.availableProviders}
+      />
     </div>
   );
 }
