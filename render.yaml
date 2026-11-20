@@ -30,3 +30,9 @@ services:
         sync: false
       - key: STORAGE_PATH
         value: /app/storage
+      - key: DB_POOL_MAX_SIZE
+        value: 5
+      - key: DB_POOL_MIN_IDLE
+        value: 2
+      - key: JAVA_OPTS
+        value: "-XX:+UseSerialGC -Xms128m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -Xss512k -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom"

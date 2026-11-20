@@ -87,7 +87,7 @@ class ReportEmailServiceTest {
         assertThat(status.getHost()).isEqualTo("smtp.gmail.com");
         assertThat(status.getPort()).isEqualTo(587);
         assertThat(status.getSender()).isEqualTo("faculty@rguktn.ac.in");
-        assertThat(status.getMessage()).contains("connected and ready");
+        assertThat(status.getMessage()).contains("Gmail SMTP (Port 587) is configured");
     }
 
     @Test

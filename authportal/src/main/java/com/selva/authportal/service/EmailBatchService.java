@@ -42,10 +42,17 @@ public class EmailBatchService {
         String targetBranch = (request.getBranch() != null && !request.getBranch().equalsIgnoreCase("ALL")) ? request.getBranch().trim() : null;
         String targetSection = (request.getSection() != null && !request.getSection().equalsIgnoreCase("ALL")) ? request.getSection().trim() : null;
 
-        // Gather candidate student evaluations for this week
-        List<StudentEvaluation> evals = evaluationRepository.findAllByOrderByIdAsc().stream()
-                .filter(e -> normalizedWeek.equalsIgnoreCase(EvaluationService.normalizeWeek(e.getWeek()).displayName()))
-                .collect(Collectors.toList());
+        // Gather candidate student evaluations for this week (optimized: query target week directly)
+        List<StudentEvaluation> evals = evaluationRepository.findByWeekIgnoreCase(normalizedWeek);
+        if (evals == null || evals.isEmpty()) {
+            evals = evaluationRepository.findByWeek(normalizedWeek);
+        }
+        if (evals == null || evals.isEmpty()) {
+            // Fallback for custom formatted week representations
+            evals = evaluationRepository.findAllByOrderByIdAsc().stream()
+                    .filter(e -> normalizedWeek.equalsIgnoreCase(EvaluationService.normalizeWeek(e.getWeek()).displayName()))
+                    .collect(Collectors.toList());
+        }
 
         // Pre-load all registered users to correlate metadata
         Map<String, User> userMap = new HashMap<>();

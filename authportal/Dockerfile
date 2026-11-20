@@ -29,4 +29,8 @@ COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
 ENV PORT=8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Production-tuned JVM configuration for low-memory container environments (Render Free Tier 512 MB)
+# SerialGC minimizes GC thread overhead; heap, metaspace, code cache, and thread stack sizes are strictly bounded
+ENV JAVA_OPTS="-XX:+UseSerialGC -Xms128m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -Xss512k -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom"
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

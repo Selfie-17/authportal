@@ -107,8 +107,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
     }
 
-    @ExceptionHandler(UserDisabledException.class)
-    public ResponseEntity<ErrorResponse> handleUserDisabled(UserDisabledException ex) {
+    @ExceptionHandler({UserDisabledException.class, org.springframework.security.authentication.DisabledException.class})
+    public ResponseEntity<ErrorResponse> handleUserDisabled(Exception ex) {
         log.warn("Disabled user attempted action: {}", ex.getMessage());
         ErrorResponse response = ErrorResponse.builder()
                 .timestamp(Instant.now())

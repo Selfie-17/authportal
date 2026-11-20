@@ -83,7 +83,7 @@ public class Submission {
     @Builder.Default
     private Integer version = 1;
 
-    @OneToMany(mappedBy = "submission", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "submission", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<SubmissionFile> files = new ArrayList<>();
 

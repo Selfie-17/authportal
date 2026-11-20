@@ -20,6 +20,10 @@ public interface StudentEvaluationRepository extends JpaRepository<StudentEvalua
 
     List<StudentEvaluation> findByStudentId(String studentId);
 
+    List<StudentEvaluation> findByWeek(String week);
+
+    List<StudentEvaluation> findByWeekIgnoreCase(String week);
+
     List<StudentEvaluation> findAllByOrderByIdAsc();
 
     @Query("SELECT DISTINCT e.studentId FROM StudentEvaluation e ORDER BY e.studentId ASC")

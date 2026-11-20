@@ -15,9 +15,12 @@ import com.selva.authportal.repository.UserRepository;
 import com.selva.authportal.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.selva.authportal.security.LoginRateLimiter;
+import com.selva.authportal.security.UserCacheService;
+import com.selva.authportal.security.oauth2.OAuth2ExchangeCodeStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import com.selva.authportal.security.oauth2.OAuth2ExchangeCodeStore;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -25,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AuthService {
 
     private final UserRepository userRepository;
@@ -33,6 +35,39 @@ public class AuthService {
     private final EmailRoleResolver emailRoleResolver;
     private final JwtService jwtService;
     private final OAuth2ExchangeCodeStore exchangeCodeStore;
+    private LoginRateLimiter loginRateLimiter;
+    private UserCacheService userCacheService;
+
+    public AuthService(UserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       EmailRoleResolver emailRoleResolver,
+                       JwtService jwtService,
+                       OAuth2ExchangeCodeStore exchangeCodeStore) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.emailRoleResolver = emailRoleResolver;
+        this.jwtService = jwtService;
+        this.exchangeCodeStore = exchangeCodeStore;
+        this.loginRateLimiter = new LoginRateLimiter();
+        this.userCacheService = new UserCacheService();
+    }
+
+    @Autowired
+    public AuthService(UserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       EmailRoleResolver emailRoleResolver,
+                       JwtService jwtService,
+                       OAuth2ExchangeCodeStore exchangeCodeStore,
+                       LoginRateLimiter loginRateLimiter,
+                       UserCacheService userCacheService) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.emailRoleResolver = emailRoleResolver;
+        this.jwtService = jwtService;
+        this.exchangeCodeStore = exchangeCodeStore;
+        this.loginRateLimiter = loginRateLimiter != null ? loginRateLimiter : new LoginRateLimiter();
+        this.userCacheService = userCacheService != null ? userCacheService : new UserCacheService();
+    }
 
     /**
      * Registers a new user with local email/password credentials.
@@ -67,6 +102,9 @@ public class AuthService {
 
         User user = userBuilder.build();
         User savedUser = userRepository.save(user);
+        if (userCacheService != null) {
+            userCacheService.evict(normalizedEmail);
+        }
         log.info("Successfully registered local user with email: {} and role: {}", normalizedEmail, assignedRole);
 
         // 5. Generate application JWT
@@ -87,18 +125,31 @@ public class AuthService {
     public AuthResponse login(LoginRequest request) {
         String normalizedEmail = request.getEmail().trim().toLowerCase();
 
+        // 0. Brute-force & rate-limiting check
+        if (loginRateLimiter != null && loginRateLimiter.isBlocked(normalizedEmail)) {
+            throw new InvalidCredentialsException("Too many failed login attempts. Please wait 15 minutes before trying again.");
+        }
+
         // 1. Locate user; use generic error to prevent account enumeration
         User user = userRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password."));
+                .orElse(null);
 
         // 2. Verify password (accounts created solely via Google OAuth will have null password)
-        if (user.getPassword() == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        if (user == null || user.getPassword() == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            if (loginRateLimiter != null) {
+                loginRateLimiter.recordFailure(normalizedEmail);
+            }
             throw new InvalidCredentialsException("Invalid email or password.");
         }
 
         // 3. Check account enabled status
         if (!user.isEnabled()) {
             throw new UserDisabledException("Your account is disabled. Please contact administration.");
+        }
+
+        // Clear failed attempts upon successful login
+        if (loginRateLimiter != null) {
+            loginRateLimiter.recordSuccess(normalizedEmail);
         }
 
         log.info("User logged in successfully: {}", normalizedEmail);

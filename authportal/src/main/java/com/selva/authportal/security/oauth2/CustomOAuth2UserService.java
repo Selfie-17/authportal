@@ -6,8 +6,9 @@ import com.selva.authportal.model.Role;
 import com.selva.authportal.model.User;
 import com.selva.authportal.repository.UserRepository;
 import com.selva.authportal.service.EmailRoleResolver;
-import lombok.RequiredArgsConstructor;
+import com.selva.authportal.security.UserCacheService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -24,11 +25,24 @@ import java.util.Optional;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final UserRepository userRepository;
     private final EmailRoleResolver emailRoleResolver;
+    private UserCacheService userCacheService;
+
+    public CustomOAuth2UserService(UserRepository userRepository, EmailRoleResolver emailRoleResolver) {
+        this.userRepository = userRepository;
+        this.emailRoleResolver = emailRoleResolver;
+        this.userCacheService = new UserCacheService();
+    }
+
+    @Autowired
+    public CustomOAuth2UserService(UserRepository userRepository, EmailRoleResolver emailRoleResolver, UserCacheService userCacheService) {
+        this.userRepository = userRepository;
+        this.emailRoleResolver = emailRoleResolver;
+        this.userCacheService = userCacheService != null ? userCacheService : new UserCacheService();
+    }
 
     @Override
     @Transactional
@@ -103,6 +117,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
             log.info("Existing user authenticated via Google OAuth: {}, role: {}", normalizedEmail, user.getRole());
             user = userRepository.save(user);
+            if (userCacheService != null) {
+                userCacheService.evict(normalizedEmail);
+            }
 
         } else {
             // New user provisioning: determine role via OAuth-specific resolver
@@ -132,6 +149,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             user = userBuilder.build();
 
             user = userRepository.save(user);
+            if (userCacheService != null) {
+                userCacheService.evict(normalizedEmail);
+            }
             log.info("New user provisioned via Google OAuth: {}, role: {}", normalizedEmail, role);
         }
 

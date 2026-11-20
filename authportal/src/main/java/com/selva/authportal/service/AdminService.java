@@ -10,8 +10,9 @@ import com.selva.authportal.repository.SubmissionSpecification;
 import com.selva.authportal.repository.TeacherFeedbackRepository;
 import com.selva.authportal.repository.UserRepository;
 import com.selva.authportal.repository.UserSpecification;
-import lombok.RequiredArgsConstructor;
+import com.selva.authportal.security.UserCacheService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +28,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AdminService {
 
     private final UserRepository userRepository;
@@ -35,6 +35,35 @@ public class AdminService {
     private final TeacherFeedbackRepository feedbackRepository;
     private final StorageService storageService;
     private final PasswordEncoder passwordEncoder;
+    private UserCacheService userCacheService;
+
+    public AdminService(UserRepository userRepository,
+                        SubmissionRepository submissionRepository,
+                        TeacherFeedbackRepository feedbackRepository,
+                        StorageService storageService,
+                        PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.submissionRepository = submissionRepository;
+        this.feedbackRepository = feedbackRepository;
+        this.storageService = storageService;
+        this.passwordEncoder = passwordEncoder;
+        this.userCacheService = new UserCacheService();
+    }
+
+    @Autowired
+    public AdminService(UserRepository userRepository,
+                        SubmissionRepository submissionRepository,
+                        TeacherFeedbackRepository feedbackRepository,
+                        StorageService storageService,
+                        PasswordEncoder passwordEncoder,
+                        UserCacheService userCacheService) {
+        this.userRepository = userRepository;
+        this.submissionRepository = submissionRepository;
+        this.feedbackRepository = feedbackRepository;
+        this.storageService = storageService;
+        this.passwordEncoder = passwordEncoder;
+        this.userCacheService = userCacheService != null ? userCacheService : new UserCacheService();
+    }
 
     /**
      * Lists all system users matching optional search query and role filter.
@@ -102,6 +131,9 @@ public class AdminService {
 
         user.setRole(newRole);
         User updated = userRepository.save(user);
+        if (userCacheService != null) {
+            userCacheService.evict(user.getEmail());
+        }
         log.info("Admin {} updated role of user {} to {}", currentAdmin.getEmail(), user.getEmail(), newRole);
         return UserResponse.fromEntity(updated);
     }
@@ -128,6 +160,9 @@ public class AdminService {
 
         user.setEnabled(enabled);
         User updated = userRepository.save(user);
+        if (userCacheService != null) {
+            userCacheService.evict(user.getEmail());
+        }
         log.info("Admin {} changed enabled status of user {} to {}", currentAdmin.getEmail(), user.getEmail(), enabled);
         return UserResponse.fromEntity(updated);
     }

@@ -54,6 +54,10 @@ public class ZipReportEmailService {
      */
     private record ExtractedEntry(String filename, byte[] bytes) {}
 
+    private static final int MAX_ZIP_ENTRIES = 1000;
+    private static final long MAX_ENTRY_UNCOMPRESSED_BYTES = 25 * 1024 * 1024; // 25 MB
+    private static final long MAX_TOTAL_UNCOMPRESSED_BYTES = 150 * 1024 * 1024; // 150 MB
+
     /**
      * Reads all entries from either a MultipartFile or a local filesystem path into memory.
      */
@@ -72,13 +76,23 @@ public class ZipReportEmailService {
         }
 
         List<ExtractedEntry> entries = new ArrayList<>();
+        long totalBytesRead = 0;
         try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(is))) {
             ZipEntry ze;
             while ((ze = zis.getNextEntry()) != null) {
+                if (entries.size() >= MAX_ZIP_ENTRIES) {
+                    throw new SecurityException("ZIP archive exceeds maximum allowable entry count of " + MAX_ZIP_ENTRIES);
+                }
                 if (ze.isDirectory()) {
                     continue;
                 }
-                String name = ze.getName();
+                String rawName = ze.getName();
+                // Explicit Zip Slip defense: reject path traversal indicators
+                if (rawName != null && (rawName.contains("..") || rawName.startsWith("/") || rawName.startsWith("\\"))) {
+                    log.warn("Blocked Zip Slip traversal entry: {}", rawName);
+                    continue;
+                }
+                String name = rawName;
                 // Normalize file path separators to extract plain filename
                 if (name.contains("/")) {
                     name = name.substring(name.lastIndexOf('/') + 1);
@@ -93,7 +107,16 @@ public class ZipReportEmailService {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 byte[] buffer = new byte[8192];
                 int len;
+                long entryBytes = 0;
                 while ((len = zis.read(buffer)) > 0) {
+                    entryBytes += len;
+                    totalBytesRead += len;
+                    if (entryBytes > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+                        throw new SecurityException("ZIP entry '" + name + "' exceeds maximum allowed size of 25MB");
+                    }
+                    if (totalBytesRead > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+                        throw new SecurityException("Total uncompressed ZIP size exceeds limit of 150MB");
+                    }
                     baos.write(buffer, 0, len);
                 }
                 entries.add(new ExtractedEntry(name, baos.toByteArray()));

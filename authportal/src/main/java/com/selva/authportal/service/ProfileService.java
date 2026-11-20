@@ -9,8 +9,9 @@ import com.selva.authportal.exception.ResourceNotFoundException;
 import com.selva.authportal.model.AuthProvider;
 import com.selva.authportal.model.User;
 import com.selva.authportal.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
+import com.selva.authportal.security.UserCacheService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,11 +24,24 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ProfileService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private UserCacheService userCacheService;
+
+    public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.userCacheService = new UserCacheService();
+    }
+
+    @Autowired
+    public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder, UserCacheService userCacheService) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.userCacheService = userCacheService != null ? userCacheService : new UserCacheService();
+    }
 
     /**
      * Retrieves current user profile.
@@ -63,6 +77,9 @@ public class ProfileService {
         }
 
         User saved = userRepository.save(existing);
+        if (userCacheService != null) {
+            userCacheService.evict(saved.getEmail());
+        }
         log.info("Profile updated for user: {}", saved.getEmail());
         return UserResponse.fromEntity(saved);
     }
@@ -100,6 +117,9 @@ public class ProfileService {
 
         existing.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(existing);
+        if (userCacheService != null) {
+            userCacheService.evict(existing.getEmail());
+        }
         log.info("Password successfully changed for user: {}", existing.getEmail());
     }
 }
