@@ -5,7 +5,7 @@ import React from 'react';
  * Displays color-coded numeric score (e.g. 8.5) or '-' for unevaluated weeks.
  * Supports multi-provider view (Gemini, Ollama) and interactive expansion toggle.
  */
-export default function WeekScoreCell({
+function WeekScoreCell({
   weekName,
   evaluation,
   isActive,
@@ -74,3 +74,5 @@ export default function WeekScoreCell({
     </td>
   );
 }
+
+export default React.memo(WeekScoreCell);

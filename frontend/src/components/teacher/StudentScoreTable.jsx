@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import StudentScoreRow from './StudentScoreRow';
 
 /**
@@ -16,7 +16,7 @@ export default function StudentScoreTable({
   // Map of active expanded week per student: { [studentId]: 'Week 1' }
   const [expandedWeeks, setExpandedWeeks] = useState({});
 
-  const handleToggleWeek = (studentId, targetWeek) => {
+  const handleToggleWeek = useCallback((studentId, targetWeek) => {
     setExpandedWeeks((prev) => {
       const current = prev[studentId];
       if (current === targetWeek) {
@@ -31,7 +31,7 @@ export default function StudentScoreTable({
         [studentId]: targetWeek,
       };
     });
-  };
+  }, []);
 
   if (students.length === 0) {
     return (
@@ -77,12 +77,12 @@ export default function StudentScoreTable({
 
               return (
                 <StudentScoreRow
-                  key={row.studentId || idx}
+                  key={sId || idx}
                   rowIndex={idx + 1}
                   row={row}
                   studentMeta={meta}
                   expandedWeek={expandedWeek}
-                  onToggleWeek={(targetWeek) => handleToggleWeek(sId, targetWeek)}
+                  onToggleWeek={handleToggleWeek}
                   onViewReport={onViewReport}
                   onDeleteReport={onDeleteReport}
                   providerFilter={providerFilter}

@@ -53,8 +53,47 @@ export default function TeacherFeedbackPage() {
   const [modalError, setModalError] = useState(null);
 
   // ==============================================================================
-  // Load Submissions Page from Backend
+  // Load Submissions Page from Backend (with race condition / cancellation guard)
   // ==============================================================================
+  useEffect(() => {
+    let isCancelled = false;
+
+    const fetchSubmissions = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await submissionService.getPaginatedSubmissions({
+          page: currentPage,
+          size: pageSize,
+          week: selectedWeek,
+          search: activeSearch,
+        });
+
+        if (!isCancelled) {
+          setRecords(data.content || []);
+          setCurrentPage(data.currentPage || 0);
+          setTotalPages(data.totalPages || 0);
+          setTotalElements(data.totalElements || 0);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          console.error('Failed to load submissions page:', err);
+          setError(err.message || 'Failed to retrieve submission records.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchSubmissions();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentPage, pageSize, selectedWeek, activeSearch]);
+
   const loadSubmissions = useCallback(async () => {
     try {
       setLoading(true);
@@ -77,10 +116,6 @@ export default function TeacherFeedbackPage() {
       setLoading(false);
     }
   }, [currentPage, pageSize, selectedWeek, activeSearch]);
-
-  useEffect(() => {
-    loadSubmissions();
-  }, [loadSubmissions]);
 
   // Handle Search input submission
   const handleSearchSubmit = (e) => {

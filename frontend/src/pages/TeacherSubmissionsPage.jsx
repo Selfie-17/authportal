@@ -98,23 +98,26 @@ export default function TeacherSubmissionsPage() {
    */
   const loadStudentMetadata = async () => {
     const meta = {};
+    const currentUser = authService.getAuthUser();
 
-    // 1. Fetch system users if accessible (provides real Google OAuth names, emails & profile pictures)
-    try {
-      const usersData = await adminService.getUsers();
-      const userList = Array.isArray(usersData) ? usersData : (usersData?.users || []);
-      userList.forEach((u) => {
-        if (u.email && u.email.includes('@')) {
-          const local = u.email.split('@')[0].trim().toUpperCase();
-          meta[local] = {
-            name: u.name,
-            email: u.email,
-            profilePicture: u.profilePicture || null,
-          };
-        }
-      });
-    } catch (err) {
-      // Non-admins or offline might not have access, continue gracefully
+    // 1. Fetch system users only if user has ADMIN privileges (teachers are not authorized for /api/admin/users)
+    if (currentUser?.role === 'ADMIN') {
+      try {
+        const usersData = await adminService.getUsers();
+        const userList = Array.isArray(usersData) ? usersData : (usersData?.users || []);
+        userList.forEach((u) => {
+          if (u.email && u.email.includes('@')) {
+            const local = u.email.split('@')[0].trim().toUpperCase();
+            meta[local] = {
+              name: u.name,
+              email: u.email,
+              profilePicture: u.profilePicture || null,
+            };
+          }
+        });
+      } catch (err) {
+        // Non-admins or offline might not have access, continue gracefully
+      }
     }
 
     // 2. Fetch existing submissions to augment with studentId, userName, year, section
@@ -139,7 +142,8 @@ export default function TeacherSubmissionsPage() {
       console.warn('Could not pre-load submission metadata for student labels:', err.message);
     }
 
-    setStudentMetaMap(meta);
+    // Merge non-destructively so grid-parsed entries are preserved
+    setStudentMetaMap((prev) => ({ ...prev, ...meta }));
   };
 
   const handleFeedbackUpdated = (sId, w, reviewed, text, scoreInfo) => {

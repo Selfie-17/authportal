@@ -1,20 +1,46 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import StudentSubmissionPage from './pages/StudentSubmissionPage';
-import TeacherSubmissionsPage from './pages/TeacherSubmissionsPage';
-import TeacherFeedbackPage from './pages/TeacherFeedbackPage';
-import AdminDashboardPage from './pages/AdminDashboardPage';
-import ProfilePage from './pages/ProfilePage';
-import EmailReportsPage from './pages/EmailReportsPage';
-import EmailTestsPage from './pages/EmailTestsPage';
-import OAuthCallbackPage from './pages/OAuthCallbackPage';
-import GmailOAuthCallbackPage from './pages/GmailOAuthCallbackPage';
 import { authService } from './services/authService';
 import './styles/index.css';
 import './styles/auth.css';
 import './styles/portal.css';
+
+// Route-level code splitting: lazy load pages on demand
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/RegisterPage'));
+const StudentSubmissionPage = lazy(() => import('./pages/StudentSubmissionPage'));
+const TeacherSubmissionsPage = lazy(() => import('./pages/TeacherSubmissionsPage'));
+const TeacherFeedbackPage = lazy(() => import('./pages/TeacherFeedbackPage'));
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const EmailReportsPage = lazy(() => import('./pages/EmailReportsPage'));
+const EmailTestsPage = lazy(() => import('./pages/EmailTestsPage'));
+const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage'));
+const GmailOAuthCallbackPage = lazy(() => import('./pages/GmailOAuthCallbackPage'));
+
+/**
+ * Lightweight accessible page fallback during route transitions.
+ */
+function PageLoadingFallback() {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#f8fafc',
+      }}
+      role="status"
+      aria-live="polite"
+    >
+      <div style={{ textAlign: 'center', color: '#64748b' }}>
+        <div style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>⏳</div>
+        <p style={{ fontSize: '0.9rem', fontWeight: 500, margin: 0 }}>Loading page...</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Route protection wrapper verifying JWT authentication and optional role access.
@@ -54,88 +80,90 @@ function RootRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/oauth2/callback" element={<OAuthCallbackPage />} />
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/oauth2/callback" element={<OAuthCallbackPage />} />
 
-        {/* Student Portal */}
-        <Route
-          path="/student"
-          element={
-            <ProtectedRoute allowedRoles={['STUDENT', 'ADMIN']}>
-              <StudentSubmissionPage />
-            </ProtectedRoute>
-          }
-        />
+          {/* Student Portal */}
+          <Route
+            path="/student"
+            element={
+              <ProtectedRoute allowedRoles={['STUDENT', 'ADMIN']}>
+                <StudentSubmissionPage />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Teacher Portal */}
-        <Route
-          path="/teacher"
-          element={
-            <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
-              <TeacherSubmissionsPage />
-            </ProtectedRoute>
-          }
-        />
+          {/* Teacher Portal */}
+          <Route
+            path="/teacher"
+            element={
+              <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+                <TeacherSubmissionsPage />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Student Feedback & PDF Review Page */}
-        <Route
-          path="/teacher/feedback"
-          element={
-            <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
-              <TeacherFeedbackPage />
-            </ProtectedRoute>
-          }
-        />
+          {/* Student Feedback & PDF Review Page */}
+          <Route
+            path="/teacher/feedback"
+            element={
+              <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+                <TeacherFeedbackPage />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Email Reports Distribution Center */}
-        <Route
-          path="/email-reports"
-          element={
-            <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
-              <EmailReportsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/email_reports" element={<Navigate to="/email-reports" replace />} />
+          {/* Email Reports Distribution Center */}
+          <Route
+            path="/email-reports"
+            element={
+              <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+                <EmailReportsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/email_reports" element={<Navigate to="/email-reports" replace />} />
 
-        {/* Email Testing Center */}
-        <Route
-          path="/email-tests"
-          element={
-            <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
-              <EmailTestsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/email_tests" element={<Navigate to="/email-tests" replace />} />
-        <Route path="/oauth/gmail-callback" element={<GmailOAuthCallbackPage />} />
+          {/* Email Testing Center */}
+          <Route
+            path="/email-tests"
+            element={
+              <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+                <EmailTestsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/email_tests" element={<Navigate to="/email-tests" replace />} />
+          <Route path="/oauth/gmail-callback" element={<GmailOAuthCallbackPage />} />
 
-        {/* Admin Console */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute allowedRoles={['ADMIN']}>
-              <AdminDashboardPage />
-            </ProtectedRoute>
-          }
-        />
+          {/* Admin Console */}
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute allowedRoles={['ADMIN']}>
+                <AdminDashboardPage />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* User Profile */}
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <ProfilePage />
-            </ProtectedRoute>
-          }
-        />
+          {/* User Profile */}
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Catch-all fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Catch-all fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

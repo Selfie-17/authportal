@@ -19,7 +19,7 @@ const AVATAR_COLORS = [
  * Renders an individual student row within the common Week 1–12 table,
  * plus an inline detail row when a week score is clicked or expanded.
  */
-export default function StudentScoreRow({
+function StudentScoreRow({
   rowIndex,
   row,
   studentMeta = {},
@@ -70,11 +70,15 @@ export default function StudentScoreRow({
   // 2. If no week is expanded: expand the first available evaluated week.
   const handleActionClick = () => {
     if (isAnyExpanded) {
-      onToggleWeek(expandedWeek); // collapse
+      onToggleWeek(studentId, expandedWeek); // collapse
     } else if (evaluatedWeeks.length > 0) {
-      onToggleWeek(evaluatedWeeks[0]); // expand first evaluated week
+      onToggleWeek(studentId, evaluatedWeeks[0]); // expand first evaluated week
     }
   };
+
+  const handleToggleCell = React.useCallback((targetWeek) => {
+    onToggleWeek(studentId, targetWeek);
+  }, [onToggleWeek, studentId]);
 
   const activeEvaluation = expandedWeek ? evaluations[expandedWeek] : null;
 
@@ -131,7 +135,7 @@ export default function StudentScoreRow({
               weekName={weekName}
               evaluation={ev}
               isActive={isActive}
-              onToggleWeek={onToggleWeek}
+              onToggleWeek={handleToggleCell}
               providerFilter={providerFilter}
             />
           );
@@ -184,3 +188,5 @@ export default function StudentScoreRow({
     </>
   );
 }
+
+export default React.memo(StudentScoreRow);

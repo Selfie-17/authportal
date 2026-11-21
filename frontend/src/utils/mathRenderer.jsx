@@ -62,16 +62,32 @@ export function normalizeSpecialCharacters(str) {
   return result;
 }
 
+const katexCache = new Map();
+const MAX_KATEX_CACHE = 500;
+
 /**
  * Render a single TeX expression to HTML using KaTeX.
+ * Results are cached in memory to eliminate expensive repeated parsing.
  */
 export function renderKatexToString(tex, displayMode = false) {
+  if (!tex || typeof tex !== 'string') return '';
+  const cacheKey = `${displayMode ? 'D:' : 'I:'}${tex.trim()}`;
+  if (katexCache.has(cacheKey)) {
+    return katexCache.get(cacheKey);
+  }
+
   try {
-    return katex.renderToString(tex.trim(), {
+    const rendered = katex.renderToString(tex.trim(), {
       displayMode,
       throwOnError: false,
       output: 'htmlAndMathml',
     });
+    if (katexCache.size >= MAX_KATEX_CACHE) {
+      const oldestKey = katexCache.keys().next().value;
+      katexCache.delete(oldestKey);
+    }
+    katexCache.set(cacheKey, rendered);
+    return rendered;
   } catch (err) {
     console.warn('KaTeX render error:', err);
     return `<span class="katex-error" title="${err.message}">${tex}</span>`;
