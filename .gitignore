@@ -21,3 +21,10 @@ frontend/.env.*
 gcs-key*.json
 secrets/
 
+# Load testing binaries, diagnostics, and benchmark artifacts
+load-testing/bin/
+*.exe
+*-monitor.csv
+*.csv
+peak_threads.json
+test_run_metrics.prom

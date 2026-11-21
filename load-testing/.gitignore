@@ -3,3 +3,9 @@ data/users.json
 data/*.sql
 results/*.json
 results/*.html
+
+# Binaries & benchmark monitor dumps
+bin/
+*.exe
+*-monitor.csv
+*.csv

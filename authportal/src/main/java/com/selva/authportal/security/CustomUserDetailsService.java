@@ -1,37 +1,44 @@
 package com.selva.authportal.security;
 
-import com.selva.authportal.model.User;
 import com.selva.authportal.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Custom UserDetailsService that loads users by email from the database,
- * protected with a high-performance in-memory cache to prevent redundant database hits.
+ * Custom UserDetailsService that coordinates cached user authentication.
+ * Cache hits are completely transaction-free and acquire no database connection.
+ * On cache misses, user retrieval is delegated to the transactional UserDatabaseLookupService.
  */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
-    private final UserRepository userRepository;
+    private final UserDatabaseLookupService userDatabaseLookupService;
     private final UserCacheService userCacheService;
 
-    public CustomUserDetailsService(UserRepository userRepository) {
-        this.userRepository = userRepository;
+    public CustomUserDetailsService(UserDatabaseLookupService userDatabaseLookupService) {
+        this.userDatabaseLookupService = userDatabaseLookupService;
         this.userCacheService = new UserCacheService();
     }
 
     @Autowired
-    public CustomUserDetailsService(UserRepository userRepository, UserCacheService userCacheService) {
-        this.userRepository = userRepository;
+    public CustomUserDetailsService(UserDatabaseLookupService userDatabaseLookupService, UserCacheService userCacheService) {
+        this.userDatabaseLookupService = userDatabaseLookupService;
         this.userCacheService = (userCacheService != null) ? userCacheService : new UserCacheService();
     }
 
+    // Compatibility constructors for repository-based instantiations
+    public CustomUserDetailsService(UserRepository userRepository) {
+        this(new UserDatabaseLookupService(userRepository), new UserCacheService());
+    }
+
+    public CustomUserDetailsService(UserRepository userRepository, UserCacheService userCacheService) {
+        this(new UserDatabaseLookupService(userRepository), userCacheService);
+    }
+
     @Override
-    @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         if (email == null) {
             throw new UsernameNotFoundException("Email cannot be null");
@@ -43,10 +50,7 @@ public class CustomUserDetailsService implements UserDetailsService {
             return cached;
         }
 
-        User user = userRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + normalizedEmail));
-
-        UserDetails userDetails = new CustomUserDetails(user);
+        UserDetails userDetails = userDatabaseLookupService.loadUserByEmail(normalizedEmail);
         userCacheService.put(normalizedEmail, userDetails);
         return userDetails;
     }

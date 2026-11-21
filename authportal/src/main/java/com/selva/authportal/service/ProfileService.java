@@ -28,33 +28,52 @@ public class ProfileService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ProfileDatabaseLookupService profileDatabaseLookupService;
     private UserCacheService userCacheService;
 
-    public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    @Autowired
+    public ProfileService(UserRepository userRepository,
+                          PasswordEncoder passwordEncoder,
+                          ProfileDatabaseLookupService profileDatabaseLookupService,
+                          UserCacheService userCacheService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.userCacheService = new UserCacheService();
+        this.profileDatabaseLookupService = profileDatabaseLookupService;
+        this.userCacheService = userCacheService != null ? userCacheService : new UserCacheService();
     }
 
-    @Autowired
+    // Compatibility constructors for standalone test instantiations
+    public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this(userRepository, passwordEncoder, new ProfileDatabaseLookupService(userRepository), new UserCacheService());
+    }
+
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder, UserCacheService userCacheService) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.userCacheService = userCacheService != null ? userCacheService : new UserCacheService();
+        this(userRepository, passwordEncoder, new ProfileDatabaseLookupService(userRepository), userCacheService);
     }
 
     /**
      * Retrieves current user profile.
-     * Uses in-memory user entity directly if already loaded to eliminate redundant remote DB round-trips.
+     * Transaction-free on the common in-memory path: maps the existing User entity
+     * directly into UserResponse without acquiring a database connection.
+     * On missing or incomplete user entities, delegates to the transactional
+     * ProfileDatabaseLookupService through a Spring proxy boundary.
      */
-    @Transactional(readOnly = true)
     public UserResponse getProfile(User user) {
-        if (user != null && user.getId() != null) {
+        if (isFullyPopulated(user)) {
             return UserResponse.fromEntity(user);
         }
-        User fresh = userRepository.findById(user.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + user.getId()));
+        if (user == null || user.getId() == null) {
+            throw new ResourceNotFoundException("User not found with id: " + (user != null ? user.getId() : "null"));
+        }
+        User fresh = profileDatabaseLookupService.fetchUserById(user.getId());
         return UserResponse.fromEntity(fresh);
+    }
+
+    private boolean isFullyPopulated(User user) {
+        return user != null
+                && user.getId() != null
+                && user.getEmail() != null
+                && user.getRole() != null;
     }
 
     /**

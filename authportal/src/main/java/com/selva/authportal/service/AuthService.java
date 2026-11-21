@@ -14,11 +14,11 @@ import com.selva.authportal.model.User;
 import com.selva.authportal.repository.UserRepository;
 import com.selva.authportal.security.JwtService;
 import com.selva.authportal.security.CustomUserDetails;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import com.selva.authportal.security.LoginRateLimiter;
 import com.selva.authportal.security.UserCacheService;
+import com.selva.authportal.security.UserDatabaseLookupService;
 import com.selva.authportal.security.oauth2.OAuth2ExchangeCodeStore;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -36,22 +36,9 @@ public class AuthService {
     private final EmailRoleResolver emailRoleResolver;
     private final JwtService jwtService;
     private final OAuth2ExchangeCodeStore exchangeCodeStore;
+    private final UserDatabaseLookupService userDatabaseLookupService;
     private LoginRateLimiter loginRateLimiter;
     private UserCacheService userCacheService;
-
-    public AuthService(UserRepository userRepository,
-                       PasswordEncoder passwordEncoder,
-                       EmailRoleResolver emailRoleResolver,
-                       JwtService jwtService,
-                       OAuth2ExchangeCodeStore exchangeCodeStore) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.emailRoleResolver = emailRoleResolver;
-        this.jwtService = jwtService;
-        this.exchangeCodeStore = exchangeCodeStore;
-        this.loginRateLimiter = new LoginRateLimiter();
-        this.userCacheService = new UserCacheService();
-    }
 
     @Autowired
     public AuthService(UserRepository userRepository,
@@ -59,6 +46,7 @@ public class AuthService {
                        EmailRoleResolver emailRoleResolver,
                        JwtService jwtService,
                        OAuth2ExchangeCodeStore exchangeCodeStore,
+                       UserDatabaseLookupService userDatabaseLookupService,
                        LoginRateLimiter loginRateLimiter,
                        UserCacheService userCacheService) {
         this.userRepository = userRepository;
@@ -66,8 +54,30 @@ public class AuthService {
         this.emailRoleResolver = emailRoleResolver;
         this.jwtService = jwtService;
         this.exchangeCodeStore = exchangeCodeStore;
+        this.userDatabaseLookupService = userDatabaseLookupService;
         this.loginRateLimiter = loginRateLimiter != null ? loginRateLimiter : new LoginRateLimiter();
         this.userCacheService = userCacheService != null ? userCacheService : new UserCacheService();
+    }
+
+    // Compatibility constructors for standalone test instantiations
+    public AuthService(UserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       EmailRoleResolver emailRoleResolver,
+                       JwtService jwtService,
+                       OAuth2ExchangeCodeStore exchangeCodeStore) {
+        this(userRepository, passwordEncoder, emailRoleResolver, jwtService, exchangeCodeStore,
+             new UserDatabaseLookupService(userRepository), new LoginRateLimiter(), new UserCacheService());
+    }
+
+    public AuthService(UserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       EmailRoleResolver emailRoleResolver,
+                       JwtService jwtService,
+                       OAuth2ExchangeCodeStore exchangeCodeStore,
+                       LoginRateLimiter loginRateLimiter,
+                       UserCacheService userCacheService) {
+        this(userRepository, passwordEncoder, emailRoleResolver, jwtService, exchangeCodeStore,
+             new UserDatabaseLookupService(userRepository), loginRateLimiter, userCacheService);
     }
 
     /**
@@ -121,21 +131,25 @@ public class AuthService {
 
     /**
      * Authenticates a user using local email and password.
+     * Transaction-free at the orchestrator level: User lookup executes in an isolated,
+     * short read-only transaction through UserDatabaseLookupService and immediately releases
+     * the database connection back to HikariCP before CPU-bound BCrypt password verification
+     * and JWT generation execute.
      */
-    @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         String normalizedEmail = request.getEmail().trim().toLowerCase();
 
-        // 0. Brute-force & rate-limiting check
+        // 0. Brute-force & rate-limiting check (zero DB)
         if (loginRateLimiter != null && loginRateLimiter.isBlocked(normalizedEmail)) {
             throw new InvalidCredentialsException("Too many failed login attempts. Please wait 15 minutes before trying again.");
         }
 
-        // 1. Locate user; use generic error to prevent account enumeration
-        User user = userRepository.findByEmail(normalizedEmail)
+        // 1. Locate user via isolated transactional query; connection is checked out for findByEmail
+        // and released immediately when UserDatabaseLookupService returns.
+        User user = userDatabaseLookupService.findUserByEmail(normalizedEmail)
                 .orElse(null);
 
-        // 2. Verify password (accounts created solely via Google OAuth will have null password)
+        // 2. Verify password (CPU-bound BCrypt execution occurs with ZERO database connections held)
         if (user == null || user.getPassword() == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             if (loginRateLimiter != null) {
                 loginRateLimiter.recordFailure(normalizedEmail);
@@ -160,7 +174,7 @@ public class AuthService {
             userCacheService.put(normalizedEmail, new CustomUserDetails(user));
         }
 
-        // 4. Generate JWT
+        // 4. Generate JWT (in-memory CPU work with zero DB connection held)
         String token = jwtService.generateToken(user);
 
         return AuthResponse.builder()
@@ -208,4 +222,3 @@ public class AuthService {
                 .build();
     }
 }
-
