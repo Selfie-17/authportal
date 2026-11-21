@@ -1,0 +1,36 @@
+{
+  "name": "authportal-load-testing",
+  "version": "1.0.0",
+  "description": "Dedicated k6 load testing suite and account provisioning system for AuthPortal backend",
+  "scripts": {
+    "accounts:generate:100": "node ./scripts/generate-accounts.js --count 100",
+    "accounts:generate:500": "node ./scripts/generate-accounts.js --count 500 --sql",
+    "accounts:generate:1000": "node ./scripts/generate-accounts.js --count 1000 --sql",
+    "accounts:provision": "node ./scripts/provision-accounts.js",
+    "accounts:provision:staging": "node ./scripts/provision-accounts.js --target https://authportal-backend.onrender.com --batch 2",
+    "accounts:cleanup:sql": "node ./scripts/cleanup-dummy-accounts.js --sql-only",
+    "accounts:validate": "node ./tests/validate-generator.js",
+    "test:baseline": "powershell -File ./scripts/run-test.ps1 -TestName 01",
+    "test:normal": "powershell -File ./scripts/run-test.ps1 -TestName 02 -Mode student-only",
+    "test:normal:blended": "powershell -File ./scripts/run-test.ps1 -TestName 02 -Mode blended",
+    "test:diagnostic": "powershell -File ./scripts/run-test.ps1 -TestName 02-diagnostic",
+    "test:login": "powershell -File ./scripts/run-test.ps1 -TestName 03",
+    "test:dashboard": "powershell -File ./scripts/run-test.ps1 -TestName 04",
+    "test:evaluation": "powershell -File ./scripts/run-test.ps1 -TestName 05",
+    "test:downloads": "powershell -File ./scripts/run-test.ps1 -TestName 06",
+    "test:spike": "powershell -File ./scripts/run-test.ps1 -TestName 07",
+    "test:soak": "powershell -File ./scripts/run-test.ps1 -TestName 08",
+    "test:capacity": "powershell -File ./scripts/run-test.ps1 -TestName 09",
+    "test:staging:baseline": "powershell -File ./scripts/run-test.ps1 -TestName 01 -Environment staging"
+  },
+  "keywords": [
+    "k6",
+    "load-testing",
+    "performance",
+    "authportal",
+    "render",
+    "account-generator"
+  ],
+  "author": "Performance Engineering Team",
+  "license": "UNLICENSED"
+}

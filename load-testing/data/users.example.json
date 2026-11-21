@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "generatedAt": "2026-11-21T00:00:00.000Z",
+    "studentCount": 5,
+    "startId": 1,
+    "endId": 5,
+    "prefix": "n",
+    "domain": "rguktn.ac.in"
+  },
+  "students": [
+    { "name": "Student N000001", "email": "n000001@rguktn.ac.in", "password": "Password123!", "studentId": "N000001", "branch": "CSE", "academicYear": "E2", "section": "1" },
+    { "name": "Student N000002", "email": "n000002@rguktn.ac.in", "password": "Password123!", "studentId": "N000002", "branch": "CSE", "academicYear": "E2", "section": "1" },
+    { "name": "Student N000003", "email": "n000003@rguktn.ac.in", "password": "Password123!", "studentId": "N000003", "branch": "CSE", "academicYear": "E2", "section": "1" },
+    { "name": "Student N000004", "email": "n000004@rguktn.ac.in", "password": "Password123!", "studentId": "N000004", "branch": "CSE", "academicYear": "E2", "section": "1" },
+    { "name": "Student N000005", "email": "n000005@rguktn.ac.in", "password": "Password123!", "studentId": "N000005", "branch": "CSE", "academicYear": "E2", "section": "1" }
+  ],
+  "teachers": [
+    { "email": "hod.cse@rguktn.ac.in", "password": "Password123!", "name": "Dr. CSE HOD" },
+    { "email": "faculty1@rguktn.ac.in", "password": "Password123!", "name": "Prof. Algorithm" }
+  ],
+  "admin": {
+    "email": "admin@rguktn.ac.in",
+    "password": "Password123!",
+    "name": "System Admin"
+  },
+  "admins": [
+    { "email": "admin@rguktn.ac.in", "password": "Password123!", "name": "System Admin" }
+  ]
+}

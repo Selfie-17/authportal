@@ -1,0 +1,5 @@
+# Load testing credentials & generated artifacts
+data/users.json
+data/*.sql
+results/*.json
+results/*.html

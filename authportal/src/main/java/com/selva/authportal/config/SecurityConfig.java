@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -45,6 +46,7 @@ public class SecurityConfig {
     private final CustomOidcUserService customOidcUserService;
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
+    private final Environment environment;
 
     @Value("${app.cors.allowed-origins:http://localhost:5173}")
     private String allowedOrigins;
@@ -64,25 +66,39 @@ public class SecurityConfig {
                         )
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.FORWARD, DispatcherType.ERROR).permitAll()
-                        .requestMatchers(
-                                "/health",
-                                "/api/auth/register",
-                                "/api/auth/login",
-                                "/api/auth/oauth2/exchange",
-                                "/oauth2/**",
-                                "/login/oauth2/**",
-                                "/error"
-                        ).permitAll()
-                        .requestMatchers("/api/test/student").hasRole("STUDENT")
-                        .requestMatchers("/api/test/teacher").hasRole("TEACHER")
-                        .requestMatchers("/api/test/admin").hasRole("ADMIN")
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/test/authenticated").authenticated()
-                        .requestMatchers("/api/auth/me", "/api/auth/logout").authenticated()
-                        .anyRequest().authenticated()
-                )
+                .authorizeHttpRequests(auth -> {
+                    boolean isPerformanceProfile = Arrays.asList(environment.getActiveProfiles()).contains("performance");
+
+                    var registry = auth
+                            .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.FORWARD, DispatcherType.ERROR).permitAll()
+                            .requestMatchers(
+                                    "/health",
+                                    "/api/auth/register",
+                                    "/api/auth/login",
+                                    "/api/auth/oauth2/exchange",
+                                    "/oauth2/**",
+                                    "/login/oauth2/**",
+                                    "/error"
+                            ).permitAll();
+
+                    if (isPerformanceProfile) {
+                        // Diagnostic profile active: permit local Actuator monitoring endpoints
+                        registry.requestMatchers("/actuator/**").permitAll();
+                    } else {
+                        // Standard / Production profile: only health is public; all other management requires ADMIN
+                        registry.requestMatchers("/actuator/health").permitAll()
+                                .requestMatchers("/actuator/**").hasRole("ADMIN");
+                    }
+
+                    registry
+                            .requestMatchers("/api/test/student").hasRole("STUDENT")
+                            .requestMatchers("/api/test/teacher").hasRole("TEACHER")
+                            .requestMatchers("/api/test/admin").hasRole("ADMIN")
+                            .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                            .requestMatchers("/api/test/authenticated").authenticated()
+                            .requestMatchers("/api/auth/me", "/api/auth/logout").authenticated()
+                            .anyRequest().authenticated();
+                })
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint)
                         .accessDeniedHandler(restAccessDeniedHandler)

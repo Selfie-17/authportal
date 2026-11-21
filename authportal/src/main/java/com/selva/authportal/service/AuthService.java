@@ -13,6 +13,7 @@ import com.selva.authportal.model.Role;
 import com.selva.authportal.model.User;
 import com.selva.authportal.repository.UserRepository;
 import com.selva.authportal.security.JwtService;
+import com.selva.authportal.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.selva.authportal.security.LoginRateLimiter;
@@ -103,7 +104,7 @@ public class AuthService {
         User user = userBuilder.build();
         User savedUser = userRepository.save(user);
         if (userCacheService != null) {
-            userCacheService.evict(normalizedEmail);
+            userCacheService.put(normalizedEmail, new CustomUserDetails(savedUser));
         }
         log.info("Successfully registered local user with email: {} and role: {}", normalizedEmail, assignedRole);
 
@@ -153,6 +154,11 @@ public class AuthService {
         }
 
         log.info("User logged in successfully: {}", normalizedEmail);
+
+        // Warm user cache immediately to avoid DB round-trips on subsequent authenticated requests
+        if (userCacheService != null) {
+            userCacheService.put(normalizedEmail, new CustomUserDetails(user));
+        }
 
         // 4. Generate JWT
         String token = jwtService.generateToken(user);

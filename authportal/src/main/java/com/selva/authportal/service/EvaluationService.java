@@ -13,6 +13,7 @@ import com.selva.authportal.model.TeacherFeedback;
 import com.selva.authportal.model.YearLevel;
 import com.selva.authportal.repository.StudentEvaluationRepository;
 import com.selva.authportal.repository.TeacherFeedbackRepository;
+import com.selva.authportal.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.InputStreamResource;
@@ -420,11 +421,11 @@ public class EvaluationService {
                 .map(WeekInfo::displayName)
                 .collect(Collectors.toList());
 
-        // Pre-load student details from UserRepository ONLY (zero N+1 queries, zero submission table scans)
-        Map<String, com.selva.authportal.model.User> userMap = new HashMap<>();
+        // Pre-load student details using projection ONLY (zero N+1 queries, zero submission table scans)
+        Map<String, UserRepository.StudentDirectoryProjection> userMap = new HashMap<>();
         try {
-            List<com.selva.authportal.model.User> allUsers = userRepository.findAll();
-            for (com.selva.authportal.model.User u : allUsers) {
+            List<UserRepository.StudentDirectoryProjection> allStudents = userRepository.findAllStudentDirectory();
+            for (UserRepository.StudentDirectoryProjection u : allStudents) {
                 if (u.getEmail() != null && u.getEmail().contains("@")) {
                     String local = u.getEmail().split("@")[0].trim().toUpperCase();
                     userMap.put(local, u);
@@ -452,7 +453,7 @@ public class EvaluationService {
 
         for (Map.Entry<String, Map<String, Map<String, StudentEvaluationRepository.EvaluationSummaryProjection>>> studentEntry : studentWeekProviderMap.entrySet()) {
             String studentId = studentEntry.getKey();
-            com.selva.authportal.model.User matchedUser = userMap.get(studentId.toUpperCase());
+            UserRepository.StudentDirectoryProjection matchedUser = userMap.get(studentId.toUpperCase());
             String studentName = matchedUser != null ? matchedUser.getName() : null;
             String profilePic = matchedUser != null ? matchedUser.getProfilePicture() : null;
 

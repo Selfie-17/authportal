@@ -45,9 +45,13 @@ public class ProfileService {
 
     /**
      * Retrieves current user profile.
+     * Uses in-memory user entity directly if already loaded to eliminate redundant remote DB round-trips.
      */
     @Transactional(readOnly = true)
     public UserResponse getProfile(User user) {
+        if (user != null && user.getId() != null) {
+            return UserResponse.fromEntity(user);
+        }
         User fresh = userRepository.findById(user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + user.getId()));
         return UserResponse.fromEntity(fresh);

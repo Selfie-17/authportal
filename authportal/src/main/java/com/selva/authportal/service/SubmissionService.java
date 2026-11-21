@@ -25,6 +25,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -75,8 +76,44 @@ public class SubmissionService {
         this.teacherFeedbackRepository = teacherFeedbackRepository;
     }
 
+    @Autowired(required = false)
+    private TransactionTemplate transactionTemplate;
+
+    private <T> T executeInTransaction(java.util.function.Supplier<T> action) {
+        if (transactionTemplate != null) {
+            return transactionTemplate.execute(status -> action.get());
+        }
+        return action.get();
+    }
+
+    private record PreparedFile(
+            MultipartFile file,
+            String originalFilename,
+            String storageKey,
+            String ext,
+            FileType fileType
+    ) {}
+
     @Value("${app.auth.student-pattern:^[A-Za-z](\\d{6})@(rguktn\\.ac\\.in|rguktrkv\\.ac\\.in|rguktong\\.ac\\.in|rguktsklm\\.ac\\.in|rgukt\\.in)$}")
     private String studentPatternRegex;
+
+    private volatile Pattern compiledStudentPattern;
+    private volatile String cachedRegexString;
+
+    private Pattern getCompiledStudentPattern() {
+        String currentRegex = this.studentPatternRegex;
+        if (compiledStudentPattern == null || !Objects.equals(currentRegex, cachedRegexString)) {
+            synchronized (this) {
+                if (compiledStudentPattern == null || !Objects.equals(currentRegex, cachedRegexString)) {
+                    this.compiledStudentPattern = (currentRegex != null)
+                            ? Pattern.compile(currentRegex, Pattern.CASE_INSENSITIVE)
+                            : null;
+                    this.cachedRegexString = currentRegex;
+                }
+            }
+        }
+        return compiledStudentPattern;
+    }
 
     /**
      * Derives the default institutional student ID from an authenticated email.
@@ -90,11 +127,13 @@ public class SubmissionService {
             return "";
         }
         try {
-            Pattern pattern = Pattern.compile(studentPatternRegex, Pattern.CASE_INSENSITIVE);
-            Matcher matcher = pattern.matcher(email.trim());
-            if (matcher.matches()) {
-                String localPart = email.trim().split("@")[0];
-                return localPart.toUpperCase();
+            Pattern pattern = getCompiledStudentPattern();
+            if (pattern != null) {
+                Matcher matcher = pattern.matcher(email.trim());
+                if (matcher.matches()) {
+                    String localPart = email.trim().split("@")[0];
+                    return localPart.toUpperCase();
+                }
             }
         } catch (Exception e) {
             log.warn("Failed to derive student ID from email {}: {}", email, e.getMessage());
@@ -117,13 +156,14 @@ public class SubmissionService {
     /**
      * Submits or replaces an assignment for a given Week, Year, and Section.
      * The authenticated User entity is strictly the ownership anchor.
+     * Decouples remote Backblaze B2 file uploads from the database write transaction
+     * to avoid holding HikariCP connections open during external network I/O.
      *
      * @param user    The authenticated user
      * @param request Submission metadata
      * @param files   List of uploaded .c and .pdf files
      * @return SubmissionResponse with details and file listing
      */
-    @Transactional
     public SubmissionResponse submitAssignment(User user, SubmissionRequest request, List<MultipartFile> files) {
         if (user == null || !user.isEnabled()) {
             throw new AccessDeniedException("User account is invalid or disabled.");
@@ -141,56 +181,9 @@ public class SubmissionService {
                 studentId
         );
 
-        // Check if an existing submission exists for (user_id, week, year, section)
-        Optional<Submission> existingOpt = submissionRepository.findByUserIdAndWeekAndYearAndSection(
-                user.getId(),
-                request.getWeek(),
-                request.getYear(),
-                request.getSection()
-        );
-
-        Submission submission;
-        if (existingOpt.isPresent()) {
-            // Replace / Update flow: increment revision counter
-            submission = existingOpt.get();
-            submission.setStudentId(studentId); // update studentId label if student edited it
-            submission.setVersion(submission.getVersion() + 1);
-            submission.setStatus(SubmissionStatus.UPDATED);
-            if (request.getBranch() != null) {
-                submission.setBranch(request.getBranch().trim());
-            }
-
-            // Clean up previous files in storage
-            try {
-                storageService.deletePrefix(submission.getStoragePath());
-            } catch (IOException e) {
-                throw new IllegalStateException("Failed to clean up previous submission files in storage", e);
-            }
-
-            // Remove existing file database records
-            submission.getFiles().clear();
-            log.info("Updating existing submission id {} for user {} to revision {}",
-                    submission.getId(), user.getEmail(), submission.getVersion());
-        } else {
-            // Initial submission: revision counter starts at 1
-            submission = Submission.builder()
-                    .user(user)
-                    .studentId(studentId)
-                    .week(request.getWeek())
-                    .year(request.getYear())
-                    .section(request.getSection())
-                    .branch(request.getBranch() != null ? request.getBranch().trim() : null)
-                    .storagePath(relativeStoragePath)
-                    .status(SubmissionStatus.SUBMITTED)
-                    .version(1)
-                    .files(new ArrayList<>())
-                    .build();
-            log.info("Creating new submission for user {} (week {}, year {}, sec {})",
-                    user.getEmail(), request.getWeek(), request.getYear(), request.getSection());
-        }
-
-        // Store each validated file
+        // Prepare file metadata and validate unique filenames before any I/O or DB transactions
         Set<String> seenFilenames = new HashSet<>();
+        List<PreparedFile> preparedFiles = new ArrayList<>();
         for (MultipartFile file : files) {
             String originalFilename = SubmissionPathUtils.sanitizeFilename(file.getOriginalFilename());
             if (!seenFilenames.add(originalFilename.toLowerCase())) {
@@ -199,27 +192,82 @@ public class SubmissionService {
 
             String ext = getFileExtension(originalFilename);
             FileType fileType = ext.equalsIgnoreCase(".c") ? FileType.SOURCE_CODE : FileType.PDF_REPORT;
-
             String storageKey = SubmissionPathUtils.buildStorageKey(relativeStoragePath, originalFilename);
-            try {
-                storageService.storeFile(file.getInputStream(), storageKey, file.getContentType(), file.getSize());
-            } catch (IOException e) {
-                throw new IllegalStateException("Failed to store file: " + originalFilename, e);
-            }
-
-            SubmissionFile submissionFile = SubmissionFile.builder()
-                    .originalFilename(originalFilename)
-                    .storedFilename(originalFilename)
-                    .storageKey(storageKey)
-                    .fileExtension(ext.toLowerCase())
-                    .fileType(fileType)
-                    .fileSizeBytes(file.getSize())
-                    .build();
-
-            submission.addFile(submissionFile);
+            preparedFiles.add(new PreparedFile(file, originalFilename, storageKey, ext, fileType));
         }
 
-        Submission saved = submissionRepository.save(submission);
+        // Check if an existing submission exists
+        Optional<Submission> existingOpt = submissionRepository.findByUserIdAndWeekAndYearAndSection(
+                user.getId(),
+                request.getWeek(),
+                request.getYear(),
+                request.getSection()
+        );
+
+        // If replacing an existing submission, clean up previous files in storage
+        if (existingOpt.isPresent()) {
+            try {
+                storageService.deletePrefix(existingOpt.get().getStoragePath());
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to clean up previous submission files in storage", e);
+            }
+        }
+
+        // Upload files to storage (Backblaze B2 / local storage) OUTSIDE database transaction
+        for (PreparedFile pf : preparedFiles) {
+            try {
+                storageService.storeFile(pf.file().getInputStream(), pf.storageKey(), pf.file().getContentType(), pf.file().getSize());
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to store file: " + pf.originalFilename(), e);
+            }
+        }
+
+        // Persist submission record and file references in a brief database transaction
+        Submission saved = executeInTransaction(() -> {
+            Submission submission;
+            if (existingOpt.isPresent()) {
+                submission = existingOpt.get();
+                submission.setStudentId(studentId);
+                submission.setVersion(submission.getVersion() + 1);
+                submission.setStatus(SubmissionStatus.UPDATED);
+                if (request.getBranch() != null) {
+                    submission.setBranch(request.getBranch().trim());
+                }
+                submission.getFiles().clear();
+                log.info("Updating existing submission id {} for user {} to revision {}",
+                        submission.getId(), user.getEmail(), submission.getVersion());
+            } else {
+                submission = Submission.builder()
+                        .user(user)
+                        .studentId(studentId)
+                        .week(request.getWeek())
+                        .year(request.getYear())
+                        .section(request.getSection())
+                        .branch(request.getBranch() != null ? request.getBranch().trim() : null)
+                        .storagePath(relativeStoragePath)
+                        .status(SubmissionStatus.SUBMITTED)
+                        .version(1)
+                        .files(new ArrayList<>())
+                        .build();
+                log.info("Creating new submission for user {} (week {}, year {}, sec {})",
+                        user.getEmail(), request.getWeek(), request.getYear(), request.getSection());
+            }
+
+            for (PreparedFile pf : preparedFiles) {
+                SubmissionFile submissionFile = SubmissionFile.builder()
+                        .originalFilename(pf.originalFilename())
+                        .storedFilename(pf.originalFilename())
+                        .storageKey(pf.storageKey())
+                        .fileExtension(pf.ext().toLowerCase())
+                        .fileType(pf.fileType())
+                        .fileSizeBytes(pf.file().getSize())
+                        .build();
+                submission.addFile(submissionFile);
+            }
+
+            return submissionRepository.save(submission);
+        });
+
         return SubmissionResponse.fromEntity(saved);
     }
 
