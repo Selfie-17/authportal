@@ -215,12 +215,11 @@ public class AuthService {
      * Exchanges a short-lived, single-use authorization code for an application JWT.
      * Burns the code upon exchange and returns standard AuthResponse.
      */
-    @Transactional(readOnly = true)
     public AuthResponse exchangeOAuthCode(String code) {
         String email = exchangeCodeStore.consumeCode(code)
                 .orElseThrow(() -> new InvalidCredentialsException("Invalid or expired OAuth authorization code."));
 
-        User user = userRepository.findByEmail(email)
+        User user = userDatabaseLookupService.findUserByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found for email: " + email));
 
         if (!user.isEnabled()) {

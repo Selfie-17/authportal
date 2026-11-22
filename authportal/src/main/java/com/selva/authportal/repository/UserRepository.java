@@ -26,6 +26,26 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     long countByRole(Role role);
 
+    interface AdminCounts {
+        long getTotalUsers();
+        long getStudentCount();
+        long getTeacherCount();
+        long getAdminCount();
+        long getTotalSubmissions();
+        long getTotalFeedbacks();
+    }
+
+    @Query(value = """
+            SELECT COUNT(*) AS totalUsers,
+                   COUNT(CASE WHEN role = 'STUDENT' THEN 1 END) AS studentCount,
+                   COUNT(CASE WHEN role = 'TEACHER' THEN 1 END) AS teacherCount,
+                   COUNT(CASE WHEN role = 'ADMIN' THEN 1 END) AS adminCount,
+                   (SELECT COUNT(*) FROM submissions) AS totalSubmissions,
+                   (SELECT COUNT(*) FROM teacher_feedbacks) AS totalFeedbacks
+            FROM users
+            """, nativeQuery = true)
+    AdminCounts countAdminStats();
+
     List<User> findAllByOrderByCreatedAtDesc();
 
     /**

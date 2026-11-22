@@ -17,6 +17,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -95,28 +96,23 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             // Existing user handling
             user = existingUserOpt.get();
 
-            // Safe account linking: associate Google ID if not already set
-            if (user.getGoogleId() == null) {
-                user.setGoogleId(googleId);
-            }
-
-            // Update profile picture with latest Google avatar
-            if (picture != null && !picture.trim().isEmpty()) {
-                user.setProfilePicture(picture);
-            }
-
-            // Role assignment for Google OAuth:
-            // - If email is configured Google admin: ensure ADMIN
-            // - Else if user already has ADMIN: preserve ADMIN (never downgrade)
-            // - Else (existing student/teacher): resolve according to Google OAuth rules
+            String linkedGoogleId = user.getGoogleId() == null ? googleId : user.getGoogleId();
+            String profilePicture = picture != null && !picture.trim().isEmpty() ? picture : user.getProfilePicture();
+            Role role = user.getRole();
             if (emailRoleResolver.isGoogleAdmin(normalizedEmail)) {
-                user.setRole(Role.ADMIN);
-            } else if (user.getRole() != Role.ADMIN) {
-                user.setRole(emailRoleResolver.resolveOAuthRole(normalizedEmail));
+                role = Role.ADMIN;
+            } else if (role != Role.ADMIN) {
+                role = emailRoleResolver.resolveOAuthRole(normalizedEmail);
             }
 
+            if (!Objects.equals(user.getGoogleId(), linkedGoogleId)
+                    || !Objects.equals(user.getProfilePicture(), profilePicture) || user.getRole() != role) {
+                user.setGoogleId(linkedGoogleId);
+                user.setProfilePicture(profilePicture);
+                user.setRole(role);
+                user = userRepository.save(user);
+            }
             log.info("Existing user authenticated via Google OAuth: {}, role: {}", normalizedEmail, user.getRole());
-            user = userRepository.save(user);
             if (userCacheService != null) {
                 userCacheService.evict(normalizedEmail);
             }

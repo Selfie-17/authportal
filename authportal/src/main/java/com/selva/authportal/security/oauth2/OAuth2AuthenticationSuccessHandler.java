@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
@@ -48,6 +49,9 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         try {
             if (principal instanceof OAuth2UserPrincipal customPrincipal) {
                 email = customPrincipal.getUser().getEmail();
+            } else if (principal instanceof OidcUser oidcUser) {
+                // CustomOidcUserService validated and processed this account before authentication succeeded.
+                email = oidcUser.getEmail().trim().toLowerCase();
             } else if (principal instanceof OAuth2User oAuth2User) {
                 // Ensure user is provisioned or linked in database
                 OAuth2User processed = customOAuth2UserService.processOAuth2User(oAuth2User);

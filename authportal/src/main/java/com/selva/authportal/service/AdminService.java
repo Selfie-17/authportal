@@ -13,6 +13,9 @@ import com.selva.authportal.repository.UserSpecification;
 import com.selva.authportal.security.UserCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -74,6 +77,14 @@ public class AdminService {
                 .sorted(Comparator.comparing(User::getCreatedAt).reversed())
                 .map(UserResponse::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public AdminUsersPageResponse getUsersPage(String query, Role role, int page, int size) {
+        PageRequest request = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        Page<UserResponse> users = userRepository.findAll(UserSpecification.withFilters(query, role), request)
+                .map(UserResponse::fromEntity);
+        return new AdminUsersPageResponse(users.getContent(), users.getTotalElements());
     }
 
     /**
@@ -259,13 +270,14 @@ public class AdminService {
      */
     @Transactional(readOnly = true)
     public AdminStatsResponse getSystemStats() {
+        UserRepository.AdminCounts counts = userRepository.countAdminStats();
         return AdminStatsResponse.builder()
-                .totalUsers(userRepository.count())
-                .studentCount(userRepository.countByRole(Role.STUDENT))
-                .teacherCount(userRepository.countByRole(Role.TEACHER))
-                .adminCount(userRepository.countByRole(Role.ADMIN))
-                .totalSubmissions(submissionRepository.count())
-                .totalFeedbacks(feedbackRepository.count())
+                .totalUsers(counts.getTotalUsers())
+                .studentCount(counts.getStudentCount())
+                .teacherCount(counts.getTeacherCount())
+                .adminCount(counts.getAdminCount())
+                .totalSubmissions(counts.getTotalSubmissions())
+                .totalFeedbacks(counts.getTotalFeedbacks())
                 .build();
     }
 }

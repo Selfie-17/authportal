@@ -26,9 +26,14 @@ export const adminService = {
     const url = new URL(API_ENDPOINTS.ADMIN_USERS);
     if (params.query) url.searchParams.set('query', params.query);
     if (params.role) url.searchParams.set('role', params.role);
+    if (params.page !== undefined) {
+      url.searchParams.set('page', params.page);
+      if (params.size !== undefined) url.searchParams.set('size', params.size);
+    }
 
     const res = await fetch(url.toString(), {
       headers: authService.getAuthHeaders(),
+      signal: params.signal,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

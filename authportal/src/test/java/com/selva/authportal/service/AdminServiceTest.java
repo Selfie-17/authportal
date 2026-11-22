@@ -180,12 +180,14 @@ class AdminServiceTest {
     @Test
     @DisplayName("Should return system stats aggregated correctly")
     void shouldReturnSystemStats() {
-        when(userRepository.count()).thenReturn(100L);
-        when(userRepository.countByRole(Role.STUDENT)).thenReturn(85L);
-        when(userRepository.countByRole(Role.TEACHER)).thenReturn(12L);
-        when(userRepository.countByRole(Role.ADMIN)).thenReturn(3L);
-        when(submissionRepository.count()).thenReturn(450L);
-        when(feedbackRepository.count()).thenReturn(42L);
+        UserRepository.AdminCounts counts = mock(UserRepository.AdminCounts.class);
+        when(userRepository.countAdminStats()).thenReturn(counts);
+        when(counts.getTotalUsers()).thenReturn(100L);
+        when(counts.getStudentCount()).thenReturn(85L);
+        when(counts.getTeacherCount()).thenReturn(12L);
+        when(counts.getAdminCount()).thenReturn(3L);
+        when(counts.getTotalSubmissions()).thenReturn(450L);
+        when(counts.getTotalFeedbacks()).thenReturn(42L);
 
         AdminStatsResponse stats = adminService.getSystemStats();
 

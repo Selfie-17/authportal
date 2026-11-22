@@ -130,6 +130,22 @@ class AdminControllerTest {
     }
 
     @Test
+    void shouldReturnFilteredUserPageWithTotal() throws Exception {
+        UserResponse user = UserResponse.builder().id(2L).email("student@rguktn.ac.in").build();
+        when(adminService.getUsersPage("student", Role.STUDENT, 1, 8))
+                .thenReturn(new AdminUsersPageResponse(List.of(user), 9));
+
+        mockMvc.perform(get("/api/admin/users")
+                        .param("query", "student").param("role", "STUDENT").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.users[0].email").value("student@rguktn.ac.in"))
+                .andExpect(jsonPath("$.totalItems").value(9));
+
+        mockMvc.perform(get("/api/admin/users").param("page", "0").param("size", "101"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("Should create new user and return 201 Created")
     void shouldCreateUser() throws Exception {
         CreateUserRequest request = CreateUserRequest.builder()

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import AdminStatCard from '../components/admin/AdminStatCard';
 import RoleBadge from '../components/admin/RoleBadge';
@@ -12,6 +12,8 @@ import { submissionService } from '../services/submissionService';
 import { emailService } from '../services/emailService';
 import { extractStudentIdFromEmail } from '../utils/studentDataHelper';
 import '../styles/portal.css';
+
+const USERS_PER_PAGE = 8;
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions' | 'feedbacks' | 'emailTest'
@@ -36,6 +38,8 @@ export default function AdminDashboardPage() {
 
   // Users State
   const [users, setUsers] = useState([]);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [usersRevision, setUsersRevision] = useState(0);
   const [userQuery, setUserQuery] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState('');
   const [usersLoading, setUsersLoading] = useState(false);
@@ -43,7 +47,6 @@ export default function AdminDashboardPage() {
 
   // Pagination State for Users
   const [currentPage, setCurrentPage] = useState(1);
-  const USERS_PER_PAGE = 8;
 
   // New User Form State
   const [newName, setNewName] = useState('');
@@ -215,21 +218,48 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
-  const loadUsers = useCallback(async () => {
+  useEffect(() => {
+    if (activeTab !== 'users') return;
+
+    const controller = new AbortController();
+    const page = currentPage - 1;
     setUsersLoading(true);
-    try {
-      const data = await adminService.getUsers({
-        query: userQuery,
-        role: userRoleFilter || undefined,
-      });
-      setUsers(data);
-      setCurrentPage(1); // Reset to page 1 on query/filter change
-    } catch (err) {
-      setBannerErr(err.message || 'Failed to load users.');
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [userQuery, userRoleFilter]);
+
+    const loadUsers = async () => {
+      try {
+        const data = await adminService.getUsers({
+          query: userQuery.trim(),
+          role: userRoleFilter,
+          page,
+          size: USERS_PER_PAGE,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        // Accept the legacy array during a rolling frontend/backend deployment.
+        const total = Array.isArray(data) ? data.length : data.totalItems;
+        const lastPage = Math.max(1, Math.ceil(total / USERS_PER_PAGE));
+        if (currentPage > lastPage) {
+          setCurrentPage(lastPage);
+          return;
+        }
+        setTotalUsers(total);
+        setUsers(Array.isArray(data)
+          ? data.slice(page * USERS_PER_PAGE, (page + 1) * USERS_PER_PAGE)
+          : data.users);
+      } catch (err) {
+        if (!controller.signal.aborted) setBannerErr(err.message || 'Failed to load users.');
+      } finally {
+        if (!controller.signal.aborted) setUsersLoading(false);
+      }
+    };
+
+    const timer = setTimeout(loadUsers, userQuery.trim() ? 250 : 0);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [activeTab, currentPage, userQuery, userRoleFilter, usersRevision]);
 
   const loadSubmissions = useCallback(async () => {
     setSubLoading(true);
@@ -334,22 +364,14 @@ export default function AdminDashboardPage() {
   }, [loadStats]);
 
   useEffect(() => {
-    if (activeTab === 'users') {
-      loadUsers();
-    } else if (activeTab === 'submissions') {
+    if (activeTab === 'submissions') {
       loadSubmissions();
     } else if (activeTab === 'feedbacks') {
       loadFeedbacks();
     } else if (activeTab === 'emailTest') {
       loadSmtpStatus();
     }
-  }, [activeTab, loadUsers, loadSubmissions, loadFeedbacks, loadSmtpStatus]);
-
-  // Client-side pagination slicing
-  const paginatedUsers = useMemo(() => {
-    const start = (currentPage - 1) * USERS_PER_PAGE;
-    return users.slice(start, start + USERS_PER_PAGE);
-  }, [users, currentPage]);
+  }, [activeTab, loadSubmissions, loadFeedbacks, loadSmtpStatus]);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -369,7 +391,8 @@ export default function AdminDashboardPage() {
       setNewPassword('');
       setNewRole('STUDENT');
       setBannerMsg('User account successfully provisioned.');
-      loadUsers();
+      setCurrentPage(1);
+      setUsersRevision((revision) => revision + 1);
       loadStats();
     } catch (err) {
       setAddUserError(err.message || 'Failed to create user.');
@@ -384,7 +407,7 @@ export default function AdminDashboardPage() {
     try {
       await adminService.updateRole(userId, targetRole);
       setBannerMsg('User role updated successfully.');
-      loadUsers();
+      setUsersRevision((revision) => revision + 1);
       loadStats();
     } catch (err) {
       setBannerErr(err.message || 'Failed to change role.');
@@ -397,7 +420,7 @@ export default function AdminDashboardPage() {
     try {
       await adminService.updateStatus(userId, !currentEnabled);
       setBannerMsg(`User account ${!currentEnabled ? 'enabled' : 'disabled'} successfully.`);
-      loadUsers();
+      setUsersRevision((revision) => revision + 1);
     } catch (err) {
       setBannerErr(err.message || 'Failed to toggle account status.');
     }
@@ -653,13 +676,13 @@ export default function AdminDashboardPage() {
                   className="admin-search-input"
                   placeholder="Search by name, email, or Student ID..."
                   value={userQuery}
-                  onChange={(e) => setUserQuery(e.target.value)}
+                  onChange={(e) => { setUserQuery(e.target.value); setCurrentPage(1); }}
                 />
                 {userQuery && (
                   <button
                     type="button"
                     className="btn-clear-search"
-                    onClick={() => setUserQuery('')}
+                    onClick={() => { setUserQuery(''); setCurrentPage(1); }}
                     title="Clear search text"
                   >
                     ✕
@@ -671,7 +694,7 @@ export default function AdminDashboardPage() {
                 <select
                   className="admin-role-select"
                   value={userRoleFilter}
-                  onChange={(e) => setUserRoleFilter(e.target.value)}
+                  onChange={(e) => { setUserRoleFilter(e.target.value); setCurrentPage(1); }}
                 >
                   <option value="">All Roles</option>
                   <option value="STUDENT">Students</option>
@@ -699,6 +722,7 @@ export default function AdminDashboardPage() {
                     onClick={() => {
                       setUserQuery('');
                       setUserRoleFilter('');
+                      setCurrentPage(1);
                     }}
                     style={{ marginTop: '1rem', padding: '0.4rem 0.85rem' }}
                   >
@@ -721,7 +745,7 @@ export default function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedUsers.map((u, idx) => {
+                    {users.map((u, idx) => {
                       const absoluteIndex = (currentPage - 1) * USERS_PER_PAGE + idx + 1;
                       const studentId = extractStudentIdFromEmail(u.email);
                       const isCurrentUser = u.id === currentUser.id;
@@ -821,7 +845,7 @@ export default function AdminDashboardPage() {
             {/* Pagination Controls */}
             <Pagination
               currentPage={currentPage}
-              totalItems={users.length}
+              totalItems={totalUsers}
               itemsPerPage={USERS_PER_PAGE}
               onPageChange={(p) => setCurrentPage(p)}
             />

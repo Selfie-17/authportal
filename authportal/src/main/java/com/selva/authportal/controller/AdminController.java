@@ -46,13 +46,26 @@ public class AdminController {
     /**
      * Lists system users with optional search query and role filter.
      */
-    @GetMapping("/users")
+    @GetMapping(value = "/users", params = "!page")
     public ResponseEntity<List<UserResponse>> listUsers(
             @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "role", required = false) Role role
     ) {
         List<UserResponse> users = adminService.getAllUsers(query, role);
         return ResponseEntity.ok(users);
+    }
+
+    @GetMapping(value = "/users", params = "page")
+    public ResponseEntity<AdminUsersPageResponse> listUsersPage(
+            @RequestParam(value = "query", required = false) String query,
+            @RequestParam(value = "role", required = false) Role role,
+            @RequestParam("page") int page,
+            @RequestParam(value = "size", defaultValue = "8") int size
+    ) {
+        if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Invalid user page or page size. Page size must be between 1 and 100.");
+        }
+        return ResponseEntity.ok(adminService.getUsersPage(query, role, page, size));
     }
 
     /**

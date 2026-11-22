@@ -141,6 +141,24 @@ class CustomOAuth2UserServiceTest {
     }
 
     @Test
+    void shouldSkipSavingAnUnchangedGoogleUser() {
+        String email = "faculty@rguktn.ac.in";
+        User existingUser = User.builder().id(12L).email(email).name("Faculty")
+                .googleId("google-teacher-sub").profilePicture("https://example.com/avatar.jpg")
+                .role(Role.TEACHER).authProvider(AuthProvider.GOOGLE).enabled(true).build();
+        when(mockOAuth2User.getAttribute("email")).thenReturn(email);
+        when(mockOAuth2User.getAttribute("sub")).thenReturn(existingUser.getGoogleId());
+        when(mockOAuth2User.getAttribute("name")).thenReturn(existingUser.getName());
+        when(mockOAuth2User.getAttribute("picture")).thenReturn(existingUser.getProfilePicture());
+        when(emailRoleResolver.isAllowedOAuthEmail(email)).thenReturn(true);
+        when(emailRoleResolver.resolveOAuthRole(email)).thenReturn(Role.TEACHER);
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(existingUser));
+
+        assertEquals(email, customOAuth2UserService.processOAuth2User(mockOAuth2User).getName());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should strictly reject unauthorized non-institutional Google account")
     void testRejectUnauthorizedGoogleAccount() {
         when(mockOAuth2User.getAttribute("email")).thenReturn("stranger@gmail.com");

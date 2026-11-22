@@ -263,7 +263,7 @@ class AuthServiceTest {
     void testExchangeOAuthCodeSuccess() {
         String testCode = "valid-exchange-code-123";
         when(exchangeCodeStore.consumeCode(testCode)).thenReturn(Optional.of("n210921@rguktn.ac.in"));
-        when(userRepository.findByEmail("n210921@rguktn.ac.in")).thenReturn(Optional.of(sampleUser));
+        when(userDatabaseLookupService.findUserByEmail("n210921@rguktn.ac.in")).thenReturn(Optional.of(sampleUser));
         when(jwtService.generateToken(sampleUser)).thenReturn("mocked.jwt.token");
         when(jwtService.getExpirationMs()).thenReturn(86400000L);
 
@@ -286,6 +286,6 @@ class AuthServiceTest {
                 authService.exchangeOAuthCode(testCode));
         assertEquals("Invalid or expired OAuth authorization code.", ex.getMessage());
         verify(exchangeCodeStore).consumeCode(testCode);
-        verifyNoInteractions(userRepository);
+        verifyNoInteractions(userRepository, userDatabaseLookupService);
     }
 }

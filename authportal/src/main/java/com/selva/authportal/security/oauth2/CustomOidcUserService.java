@@ -8,6 +8,8 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * Custom OIDC user service for OpenID Connect authentication (e.g. Google).
  * Ensures institutional domain validation and database persistence occur during the OIDC login flow.
@@ -21,9 +23,13 @@ public class CustomOidcUserService extends OidcUserService {
 
     @Override
     public OidcUser loadUser(OidcUserRequest userRequest) throws OAuth2AuthenticationException {
+        long start = System.nanoTime();
         OidcUser oidcUser = super.loadUser(userRequest);
-        // Ensure user is provisioned / linked in database with institutional domain checks
+        long accountStart = System.nanoTime();
         customOAuth2UserService.processOAuth2User(oidcUser);
+        log.info("oidc_sign_in user_info_ms={} account_processing_ms={}",
+                TimeUnit.NANOSECONDS.toMillis(accountStart - start),
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - accountStart));
         return oidcUser;
     }
 }
