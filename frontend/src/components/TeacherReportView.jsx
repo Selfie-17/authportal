@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { evaluationService } from '../services/evaluationService';
 import ExtractedTextViewer from './teacher/ExtractedTextViewer';
-import UploadedPdfViewer from './teacher/UploadedPdfViewer';
 import MarkdownReportRenderer from './teacher/MarkdownReportRenderer';
 import MathText from '../utils/mathRenderer';
 import EmailReportModal from './teacher/EmailReportModal';
+
+const UploadedPdfViewer = lazy(() => import('./teacher/UploadedPdfViewer'));
 
 /**
  * Single Student Teacher Report Component.
@@ -1341,7 +1342,13 @@ export default function TeacherReportView({
           <button
             type="button"
             className={`report-nav-tab ${activeTab === 'side-by-side' ? 'active' : ''}`}
-            onClick={() => setActiveTab('side-by-side')}
+            onClick={() => {
+              setActiveTab('side-by-side');
+              if (report.pdfAvailable !== false) {
+                // Let the file download run while the dynamically imported viewer loads.
+                void evaluationService.getStudentPdfData(report.studentId, report.week).catch(() => {});
+              }
+            }}
             title="Compare OCR extracted text and original PDF side by side"
           >
             <span>◫ Side-by-Side</span>
@@ -1438,11 +1445,9 @@ export default function TeacherReportView({
           </div>
 
           <div className="side-by-side-column pdf-column">
-            <UploadedPdfViewer
-              studentId={report.studentId}
-              week={report.week}
-              report={report}
-            />
+            <Suspense fallback={<p role="status">Loading PDF viewer…</p>}>
+              <UploadedPdfViewer studentId={report.studentId} week={report.week} report={report} />
+            </Suspense>
           </div>
         </div>
       )}

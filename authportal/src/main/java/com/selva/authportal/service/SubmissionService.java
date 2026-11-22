@@ -31,6 +31,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -365,8 +366,27 @@ public class SubmissionService {
      * Students may only download files from their own submissions.
      * Teachers and Admins may download files from any submission.
      */
-    @Transactional(readOnly = true)
     public DownloadableFile loadFileForDownload(User currentUser, Long submissionId, Long fileId) {
+        long start = System.nanoTime();
+        DownloadMetadata file = executeInTransaction(() -> findDownloadMetadata(currentUser, submissionId, fileId));
+        long storageStart = System.nanoTime();
+        try {
+            InputStream stream = storageService.openStream(file.storageKey());
+            return new DownloadableFile(new InputStreamResource(stream), file.filename(), file.contentType());
+        } catch (java.io.FileNotFoundException e) {
+            throw new ResourceNotFoundException("File not found in storage: " + file.filename());
+        } catch (IOException e) {
+            throw new IllegalStateException("Could not read file from storage: " + file.filename(), e);
+        } finally {
+            log.info("download_timing type=submission metadata_ms={} storage_open_ms={}",
+                    TimeUnit.NANOSECONDS.toMillis(storageStart - start),
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - storageStart));
+        }
+    }
+
+    record DownloadMetadata(String storageKey, String filename, String contentType) {}
+
+    private DownloadMetadata findDownloadMetadata(User currentUser, Long submissionId, Long fileId) {
         Submission submission = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Submission not found with id: " + submissionId));
 
@@ -382,24 +402,14 @@ public class SubmissionService {
                 ? submissionFile.getStorageKey()
                 : SubmissionPathUtils.buildStorageKey(submission.getStoragePath(), submissionFile.getStoredFilename());
 
-        InputStream inputStream;
-        try {
-            inputStream = storageService.openStream(storageKey);
-        } catch (java.io.FileNotFoundException e) {
-            throw new ResourceNotFoundException("File not found in storage: " + submissionFile.getOriginalFilename());
-        } catch (IOException e) {
-            throw new IllegalStateException("Could not read file from storage: " + submissionFile.getOriginalFilename(), e);
-        }
-
         log.info("Authorized file download submissionId={} fileId={} studentId={} storageKey={} sizeBytes={} type=file",
                 submissionId, fileId, submission.getStudentId(), storageKey, submissionFile.getFileSizeBytes());
 
-        Resource resource = new InputStreamResource(inputStream);
         String contentType = submissionFile.getFileExtension().equalsIgnoreCase(".pdf")
                 ? "application/pdf"
                 : "text/plain; charset=UTF-8";
 
-        return new DownloadableFile(resource, submissionFile.getOriginalFilename(), contentType);
+        return new DownloadMetadata(storageKey, submissionFile.getOriginalFilename(), contentType);
     }
 
     /**
@@ -502,8 +512,8 @@ public class SubmissionService {
         }
 
         Specification<Submission> spec = SubmissionSpecification.withWeekAndSearch(parsedWeekNumber, search);
-        PageRequest pageRequest = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Submission> submissionPage = submissionRepository.findAll(spec, pageRequest);
+        PageRequest pageRequest = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        Page<Submission> submissionPage = submissionRepository.findPageWithDetails(spec, pageRequest);
 
         List<Submission> submissions = submissionPage.getContent();
         if (submissions.isEmpty()) {

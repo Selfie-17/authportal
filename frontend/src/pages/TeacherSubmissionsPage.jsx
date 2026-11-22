@@ -2,9 +2,7 @@ import React, { lazy, Suspense, useState, useEffect, useMemo } from 'react';
 import Navbar from '../components/Navbar';
 import ReportFilters from '../components/teacher/ReportFilters';
 import StudentScoreTable from '../components/teacher/StudentScoreTable';
-import { submissionService } from '../services/submissionService';
 import { evaluationService } from '../services/evaluationService';
-import { adminService } from '../services/adminService';
 import { deriveEngineering, deriveSection } from '../utils/studentDataHelper';
 import '../styles/portal.css';
 
@@ -22,129 +20,34 @@ export default function TeacherSubmissionsPage() {
   const [providerFilter] = useState('all');
   const [pageAlert, setPageAlert] = useState(null);
 
-  // Student metadata lookup cache (studentId -> { name, year, section, email })
-  const [studentMetaMap, setStudentMetaMap] = useState({});
+  const studentMetaMap = useMemo(() => Object.fromEntries((gridData.rows || []).filter((row) => row.studentId).map((row) => [
+    row.studentId.toUpperCase(),
+    { name: row.studentName, profilePicture: row.profilePicture, year: row.year, section: row.section || row.sectionId },
+  ])), [gridData.rows]);
 
-  // Multi-attribute filter states
   const [filterEngineering, setFilterEngineering] = useState('ALL');
   const [filterSection, setFilterSection] = useState('ALL');
   const [filterSearch, setFilterSearch] = useState('');
 
-  // Initial load
   useEffect(() => {
     loadGrid();
-    loadStudentMetadata();
   }, []);
 
-  // ----------------------------------------------------------------------------
-  // Evaluation Data Handlers
-  // ----------------------------------------------------------------------------
   const loadGrid = async (forceRefresh = false) => {
+    const cached = forceRefresh ? null : evaluationService.gridCache.get();
+    if (cached) {
+      setGridData(cached);
+    } else {
+      setGridLoading(true);
+    }
     try {
-      // 1. SWR: Check if grid is already cached in memory for instant display
-      const hasCached = evaluationService.gridCache && evaluationService.gridCache.has();
-      if (hasCached && !forceRefresh) {
-        const cached = evaluationService.gridCache.get();
-        if (cached) {
-          setGridData(cached);
-          if (cached.rows) {
-            const meta = {};
-            cached.rows.forEach((r) => {
-              if (r.studentId) {
-                meta[r.studentId.toUpperCase()] = {
-                  name: r.studentName,
-                  profilePicture: r.profilePicture,
-                  year: r.year,
-                  section: r.section || r.sectionId,
-                };
-              }
-            });
-            setStudentMetaMap((prev) => ({ ...meta, ...prev }));
-          }
-        }
-      } else {
-        setGridLoading(true);
-      }
-
-      // 2. Fetch fresh grid data (in background if cache hit, or foreground if miss/forceRefresh)
-      const data = await evaluationService.getGrid(forceRefresh);
-      setGridData(data);
-
-      // Fast synchronous metadata mapping directly from grid response
-      if (data && data.rows) {
-        const meta = {};
-        data.rows.forEach((r) => {
-          if (r.studentId) {
-            meta[r.studentId.toUpperCase()] = {
-              name: r.studentName,
-              profilePicture: r.profilePicture,
-              year: r.year,
-              section: r.section || r.sectionId,
-            };
-          }
-        });
-        setStudentMetaMap((prev) => ({ ...meta, ...prev }));
-      }
+      setGridData(await evaluationService.getGrid(forceRefresh));
     } catch (err) {
       console.error('Failed to load evaluation grid:', err);
       setPageAlert({ type: 'error', message: err.message || 'Failed to load evaluation grid.' });
     } finally {
       setGridLoading(false);
     }
-  };
-
-  /**
-   * Loads student names and profile pictures from existing users and submissions.
-   * Strictly uses real database/OAuth data without inventing mock data.
-   */
-  const loadStudentMetadata = async () => {
-    const meta = {};
-    const currentUser = authService.getAuthUser();
-
-    // 1. Fetch system users only if user has ADMIN privileges (teachers are not authorized for /api/admin/users)
-    if (currentUser?.role === 'ADMIN') {
-      try {
-        const usersData = await adminService.getUsers();
-        const userList = Array.isArray(usersData) ? usersData : (usersData?.users || []);
-        userList.forEach((u) => {
-          if (u.email && u.email.includes('@')) {
-            const local = u.email.split('@')[0].trim().toUpperCase();
-            meta[local] = {
-              name: u.name,
-              email: u.email,
-              profilePicture: u.profilePicture || null,
-            };
-          }
-        });
-      } catch (err) {
-        // Non-admins or offline might not have access, continue gracefully
-      }
-    }
-
-    // 2. Fetch existing submissions to augment with studentId, userName, year, section
-    try {
-      const allSubs = await submissionService.filterTeacherSubmissions({});
-      if (Array.isArray(allSubs)) {
-        allSubs.forEach((sub) => {
-          if (sub.studentId) {
-            const cleanId = sub.studentId.toUpperCase();
-            meta[cleanId] = {
-              ...(meta[cleanId] || {}),
-              name: sub.userName || meta[cleanId]?.name,
-              year: sub.year || meta[cleanId]?.year,
-              section: sub.section || meta[cleanId]?.section,
-              email: sub.userEmail || meta[cleanId]?.email,
-              profilePicture: sub.userProfilePicture || meta[cleanId]?.profilePicture || null,
-            };
-          }
-        });
-      }
-    } catch (err) {
-      console.warn('Could not pre-load submission metadata for student labels:', err.message);
-    }
-
-    // Merge non-destructively so grid-parsed entries are preserved
-    setStudentMetaMap((prev) => ({ ...prev, ...meta }));
   };
 
   const handleFeedbackUpdated = (sId, w, reviewed, text, scoreInfo) => {

@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Navbar from '../components/Navbar';
+import Pagination from '../components/admin/Pagination';
 import { emailService } from '../services/emailService';
 import { evaluationService } from '../services/evaluationService';
 import { authService } from '../services/authService';
 import '../styles/portal.css';
+
+const HISTORY_PAGE_SIZE = 20;
 
 const BRANCH_OPTIONS = [
   { code: 'ALL', name: 'All Branches' },
@@ -67,6 +70,9 @@ export default function EmailReportsPage() {
 
   // Email History State
   const [historyItems, setHistoryItems] = useState([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyFilterTerm, setHistoryFilterTerm] = useState('');
   const [retryingId, setRetryingId] = useState(null);
@@ -315,24 +321,46 @@ export default function EmailReportsPage() {
   // --------------------------------------------------------------------------
   // 3. Email History Loading & Retrying
   // --------------------------------------------------------------------------
-  const loadHistory = useCallback(async () => {
-    setLoadingHistory(true);
-    try {
-      const items = await emailService.getHistory();
-      setHistoryItems(items || []);
-    } catch (err) {
-      console.error('Failed to load history:', err);
-      showToast('error', `Could not load email history: ${err.message}`);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, []);
+  const loadHistory = () => setHistoryRevision((revision) => revision + 1);
 
   useEffect(() => {
-    if (activeTab === 'history' || activeTab === 'failed') {
-      loadHistory();
-    }
-  }, [activeTab, loadHistory]);
+    if (activeTab !== 'history' && activeTab !== 'failed') return;
+    const failedOnly = activeTab === 'failed';
+    const query = failedOnly ? '' : historyFilterTerm.trim().toLowerCase();
+    const page = historyPage - 1;
+    const controller = new AbortController();
+    setLoadingHistory(true);
+    const timer = setTimeout(async () => {
+      try {
+        const data = await emailService.getHistory({
+          page, size: HISTORY_PAGE_SIZE, failedOnly, query, signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        // The prior backend returns a full list when it receives unknown pagination parameters.
+        const legacyItems = Array.isArray(data) ? data.filter((item) => (
+          (!failedOnly || item.status === 'FAILED') && (!query || [item.studentId, item.email, item.studentName]
+            .some((value) => value?.toLowerCase().includes(query)))
+        )) : null;
+        const total = legacyItems ? legacyItems.length : data.totalItems;
+        const lastPage = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+        if (historyPage > lastPage) {
+          setHistoryPage(lastPage);
+          return;
+        }
+        setHistoryTotal(total);
+        setHistoryItems(legacyItems ? legacyItems.slice(page * HISTORY_PAGE_SIZE, (page + 1) * HISTORY_PAGE_SIZE) : data.items);
+      } catch (err) {
+        if (!controller.signal.aborted) showToast('error', `Could not load email history: ${err.message}`);
+      } finally {
+        if (!controller.signal.aborted) setLoadingHistory(false);
+      }
+    }, query ? 250 : 0);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [activeTab, historyPage, historyFilterTerm, historyRevision]);
 
   const handleRetryRecipient = async (recipientId) => {
     try {
@@ -567,7 +595,7 @@ export default function EmailReportsPage() {
             role="tab"
             aria-selected={activeTab === 'history'}
             className={`email-nav-tab ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveTab('history')}
+            onClick={() => { setActiveTab('history'); setHistoryPage(1); }}
           >
             <span className="tab-icon">📋</span>
             <span>History</span>
@@ -577,7 +605,7 @@ export default function EmailReportsPage() {
             role="tab"
             aria-selected={activeTab === 'failed'}
             className={`email-nav-tab ${activeTab === 'failed' ? 'active' : ''}`}
-            onClick={() => setActiveTab('failed')}
+            onClick={() => { setActiveTab('failed'); setHistoryPage(1); }}
           >
             <span className="tab-icon">⚠️</span>
             <span>Failed</span>
@@ -1076,7 +1104,7 @@ export default function EmailReportsPage() {
                   type="text"
                   placeholder="Filter history by Student ID or Email..."
                   value={historyFilterTerm}
-                  onChange={(e) => setHistoryFilterTerm(e.target.value)}
+                  onChange={(e) => { setHistoryFilterTerm(e.target.value); setHistoryPage(1); }}
                   className="history-search-input"
                 />
                 <button
@@ -1114,17 +1142,7 @@ export default function EmailReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {historyItems
-                      .filter((item) => {
-                        if (!historyFilterTerm.trim()) return true;
-                        const term = historyFilterTerm.toLowerCase();
-                        return (
-                          item.studentId?.toLowerCase().includes(term) ||
-                          item.email?.toLowerCase().includes(term) ||
-                          item.studentName?.toLowerCase().includes(term)
-                        );
-                      })
-                      .map((item) => (
+                    {historyItems.map((item) => (
                         <tr key={item.id}>
                           <td>
                             <strong>{item.studentId}</strong>
@@ -1278,6 +1296,11 @@ export default function EmailReportsPage() {
         {/* ================================================================== */}
         {/* Tab 4: Settings & Diagnostics */}
         {/* ================================================================== */}
+        {(activeTab === 'history' || activeTab === 'failed') && !loadingHistory && (
+          <Pagination currentPage={historyPage} totalItems={historyTotal}
+            itemsPerPage={HISTORY_PAGE_SIZE} onPageChange={setHistoryPage} />
+        )}
+
         {activeTab === 'settings' && (
           <div className="settings-tab-container">
             <div className="settings-grid">

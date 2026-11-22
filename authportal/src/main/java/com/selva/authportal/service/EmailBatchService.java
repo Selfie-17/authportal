@@ -8,6 +8,7 @@ import com.selva.authportal.model.*;
 import com.selva.authportal.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -406,12 +407,31 @@ public class EmailBatchService {
             }
         }
 
+        return mapEmailHistory(allRecipients, nameCache);
+    }
+
+    @Transactional(readOnly = true)
+    public EmailHistoryPageResponse getEmailHistoryPage(int page, int size, boolean failedOnly, String query) {
+        var recipients = recipientRepository.findHistoryPage(failedOnly, query.trim().toLowerCase(Locale.ROOT),
+                PageRequest.of(page, size));
+        Map<String, String> names = new HashMap<>();
+        if (!recipients.isEmpty()) {
+            var studentIds = recipients.stream().map(r -> r.getStudentId().toUpperCase(Locale.ROOT)).distinct().toList();
+            for (var student : userRepository.findHistoryStudentNames(studentIds)) {
+                String email = student.getEmail();
+                names.put(email.substring(0, email.indexOf('@')).trim().toUpperCase(Locale.ROOT), student.getName());
+            }
+        }
+        return new EmailHistoryPageResponse(mapEmailHistory(recipients.getContent(), names), recipients.getTotalElements());
+    }
+
+    private List<EmailHistoryItemDTO> mapEmailHistory(List<EmailBatchRecipient> recipients, Map<String, String> names) {
         List<EmailHistoryItemDTO> items = new ArrayList<>();
-        for (EmailBatchRecipient r : allRecipients) {
+        for (EmailBatchRecipient r : recipients) {
             String subject = (r.getBatch() != null && r.getBatch().getSubject() != null)
                     ? r.getBatch().getSubject()
                     : "Lab Evaluation Report";
-            String studentName = nameCache.getOrDefault(r.getStudentId().toUpperCase(), r.getStudentId());
+            String studentName = names.getOrDefault(r.getStudentId().toUpperCase(Locale.ROOT), r.getStudentId());
 
             items.add(EmailHistoryItemDTO.builder()
                     .id(r.getId())

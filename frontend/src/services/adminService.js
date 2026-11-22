@@ -108,9 +108,12 @@ export const adminService = {
     if (params.year) url.searchParams.set('year', params.year);
     if (params.section) url.searchParams.set('section', params.section);
     if (params.studentId) url.searchParams.set('studentId', params.studentId);
+    if (params.page !== undefined) url.searchParams.set('page', params.page);
+    if (params.size !== undefined) url.searchParams.set('size', params.size);
 
     const res = await fetch(url.toString(), {
       headers: authService.getAuthHeaders(),
+      signal: params.signal,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

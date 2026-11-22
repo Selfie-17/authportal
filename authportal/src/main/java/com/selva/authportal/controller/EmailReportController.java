@@ -85,9 +85,22 @@ public class EmailReportController {
     /**
      * Retrieves flat email history (all individual sent, failed, and retrying emails).
      */
-    @GetMapping("/history")
+    @GetMapping(value = "/history", params = "!page")
     public ResponseEntity<List<EmailHistoryItemDTO>> getHistory() {
         return ResponseEntity.ok(emailBatchService.getEmailHistory());
+    }
+
+    @GetMapping(value = "/history", params = "page")
+    public ResponseEntity<EmailHistoryPageResponse> getHistoryPage(
+            @RequestParam("page") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size,
+            @RequestParam(value = "failedOnly", defaultValue = "false") boolean failedOnly,
+            @RequestParam(value = "query", defaultValue = "") String query
+    ) {
+        if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Invalid email history page or size. Page size must be between 1 and 100.");
+        }
+        return ResponseEntity.ok(emailBatchService.getEmailHistoryPage(page, size, failedOnly, query));
     }
 
     /**

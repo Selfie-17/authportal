@@ -189,6 +189,16 @@ public class AdminService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public SubmissionPageResponse getSubmissionsPage(Integer week, YearLevel year, Integer section, String studentId,
+                                                     int page, int size) {
+        var request = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        var submissions = submissionRepository.findPageWithDetails(
+                SubmissionSpecification.withFilters(week, year, section, studentId), request)
+                .map(SubmissionResponse::fromEntity);
+        return new SubmissionPageResponse(submissions.getContent(), submissions.getTotalElements());
+    }
+
     /**
      * Deletes a submission from the database and cleans up its physical directory on disk.
      */

@@ -309,6 +309,7 @@ export const evaluationService = {
         const headers = this.getHeaders();
         headers['Accept'] = 'application/pdf, */*';
 
+        const fetchStart = performance.now();
         const response = await fetch(url, {
           method: 'GET',
           headers,
@@ -325,7 +326,13 @@ export const evaluationService = {
           throw error;
         }
 
+        const bodyStart = performance.now();
         const arrayBuffer = await response.arrayBuffer();
+        console.info('pdf_fetch_timing', {
+          headers_ms: Math.round(bodyStart - fetchStart),
+          body_ms: Math.round(performance.now() - bodyStart),
+          bytes: arrayBuffer.byteLength,
+        });
         const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
         const blobUrl = window.URL.createObjectURL(blob);
         const uint8Array = new Uint8Array(arrayBuffer);

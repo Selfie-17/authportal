@@ -2,12 +2,14 @@ package com.selva.authportal.security;
 
 import com.selva.authportal.model.User;
 import com.selva.authportal.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Dedicated transactional database fallback service for user authentication loading.
@@ -16,6 +18,7 @@ import java.util.Optional;
  * preventing connection checkout from HikariCP on cache hits and during CPU-bound password hashing.
  */
 @Service
+@Slf4j
 public class UserDatabaseLookupService {
 
     private final UserRepository userRepository;
@@ -53,6 +56,13 @@ public class UserDatabaseLookupService {
         if (normalizedEmail == null) {
             return Optional.empty();
         }
-        return userRepository.findByEmail(normalizedEmail);
+        long start = System.nanoTime();
+        try {
+            return userRepository.findByEmail(normalizedEmail);
+        } finally {
+            // The transaction interceptor starts before this method. The outer login timer includes that cost.
+            long duration = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            log.info("auth_lookup_timing repository_ms={}", duration);
+        }
     }
 }

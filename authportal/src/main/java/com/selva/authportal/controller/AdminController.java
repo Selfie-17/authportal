@@ -117,7 +117,7 @@ public class AdminController {
     /**
      * Lists all submissions across the portal with optional filters.
      */
-    @GetMapping("/submissions")
+    @GetMapping(value = "/submissions", params = "!page")
     public ResponseEntity<List<SubmissionResponse>> listSubmissions(
             @RequestParam(value = "week", required = false) Integer week,
             @RequestParam(value = "year", required = false) YearLevel year,
@@ -126,6 +126,21 @@ public class AdminController {
     ) {
         List<SubmissionResponse> submissions = adminService.getAllSubmissions(week, year, section, studentId);
         return ResponseEntity.ok(submissions);
+    }
+
+    @GetMapping(value = "/submissions", params = "page")
+    public ResponseEntity<SubmissionPageResponse> listSubmissionsPage(
+            @RequestParam(value = "week", required = false) Integer week,
+            @RequestParam(value = "year", required = false) YearLevel year,
+            @RequestParam(value = "section", required = false) Integer section,
+            @RequestParam(value = "studentId", required = false) String studentId,
+            @RequestParam("page") int page,
+            @RequestParam(value = "size", defaultValue = "12") int size
+    ) {
+        if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Invalid submission page or size. Page size must be between 1 and 100.");
+        }
+        return ResponseEntity.ok(adminService.getSubmissionsPage(week, year, section, studentId, page, size));
     }
 
     /**

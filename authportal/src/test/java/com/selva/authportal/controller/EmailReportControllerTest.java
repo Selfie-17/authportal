@@ -1,6 +1,8 @@
 package com.selva.authportal.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.selva.authportal.dto.EmailHistoryItemDTO;
+import com.selva.authportal.dto.EmailHistoryPageResponse;
 import com.selva.authportal.dto.ZipReportItemDTO;
 import com.selva.authportal.dto.ZipReportsParseResponse;
 import com.selva.authportal.dto.ZipReportsSendRequest;
@@ -35,12 +37,25 @@ import java.util.Map;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
 class EmailReportControllerTest {
+
+    @Test
+    void shouldReturnFilteredEmailHistoryPage() throws Exception {
+        when(emailBatchService.getEmailHistoryPage(1, 20, true, "student"))
+                .thenReturn(new EmailHistoryPageResponse(List.of(EmailHistoryItemDTO.builder().id(42L).build()), 21));
+
+        mockMvc.perform(get("/api/email/history").param("page", "1")
+                        .param("failedOnly", "true").param("query", "student"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(42))
+                .andExpect(jsonPath("$.totalItems").value(21));
+    }
 
     private MockMvc mockMvc;
 

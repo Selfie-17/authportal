@@ -154,10 +154,16 @@ export const emailService = {
   /**
    * Retrieves full history of individual email dispatches.
    */
-  async getHistory() {
-    const response = await fetch(API_ENDPOINTS.EMAIL_HISTORY, {
+  async getHistory({ page, size, failedOnly, query, signal } = {}) {
+    const url = new URL(API_ENDPOINTS.EMAIL_HISTORY);
+    if (page !== undefined) url.searchParams.set('page', page);
+    if (size !== undefined) url.searchParams.set('size', size);
+    if (failedOnly) url.searchParams.set('failedOnly', 'true');
+    if (query) url.searchParams.set('query', query);
+    const response = await fetch(url, {
       method: 'GET',
       headers: this.getHeaders(),
+      signal,
     });
 
     if (!response.ok) {

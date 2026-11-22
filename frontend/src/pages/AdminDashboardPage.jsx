@@ -14,6 +14,7 @@ import { extractStudentIdFromEmail } from '../utils/studentDataHelper';
 import '../styles/portal.css';
 
 const USERS_PER_PAGE = 8;
+const SUBMISSIONS_PER_PAGE = 12;
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState('users'); // 'users' | 'submissions' | 'feedbacks' | 'emailTest'
@@ -58,6 +59,9 @@ export default function AdminDashboardPage() {
 
   // Submissions State
   const [submissions, setSubmissions] = useState([]);
+  const [submissionPage, setSubmissionPage] = useState(1);
+  const [totalSubmissions, setTotalSubmissions] = useState(0);
+  const [submissionRevision, setSubmissionRevision] = useState(0);
   const [subWeek, setSubWeek] = useState('');
   const [subYear, setSubYear] = useState('');
   const [subSection, setSubSection] = useState('');
@@ -261,22 +265,39 @@ export default function AdminDashboardPage() {
     };
   }, [activeTab, currentPage, userQuery, userRoleFilter, usersRevision]);
 
-  const loadSubmissions = useCallback(async () => {
+  useEffect(() => {
+    if (activeTab !== 'submissions') return;
+    const controller = new AbortController();
+    const page = submissionPage - 1;
     setSubLoading(true);
-    try {
-      const data = await adminService.getSubmissions({
-        week: subWeek || undefined,
-        year: subYear || undefined,
-        section: subSection || undefined,
-        studentId: subStudentId || undefined,
-      });
-      setSubmissions(data);
-    } catch (err) {
-      setBannerErr(err.message || 'Failed to load submissions.');
-    } finally {
-      setSubLoading(false);
-    }
-  }, [subWeek, subYear, subSection, subStudentId]);
+    const timer = setTimeout(async () => {
+      try {
+        const data = await adminService.getSubmissions({
+          week: subWeek, year: subYear, section: subSection, studentId: subStudentId.trim(),
+          page, size: SUBMISSIONS_PER_PAGE, signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        const total = Array.isArray(data) ? data.length : data.totalItems;
+        const lastPage = Math.max(1, Math.ceil(total / SUBMISSIONS_PER_PAGE));
+        if (submissionPage > lastPage) {
+          setSubmissionPage(lastPage);
+          return;
+        }
+        setTotalSubmissions(total);
+        setSubmissions(Array.isArray(data)
+          ? data.slice(page * SUBMISSIONS_PER_PAGE, (page + 1) * SUBMISSIONS_PER_PAGE)
+          : data.submissions);
+      } catch (err) {
+        if (!controller.signal.aborted) setBannerErr(err.message || 'Failed to load submissions.');
+      } finally {
+        if (!controller.signal.aborted) setSubLoading(false);
+      }
+    }, subStudentId.trim() ? 250 : 0);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [activeTab, submissionPage, subWeek, subYear, subSection, subStudentId, submissionRevision]);
 
   const loadFeedbacks = useCallback(async () => {
     setFbLoading(true);
@@ -364,14 +385,12 @@ export default function AdminDashboardPage() {
   }, [loadStats]);
 
   useEffect(() => {
-    if (activeTab === 'submissions') {
-      loadSubmissions();
-    } else if (activeTab === 'feedbacks') {
+    if (activeTab === 'feedbacks') {
       loadFeedbacks();
     } else if (activeTab === 'emailTest') {
       loadSmtpStatus();
     }
-  }, [activeTab, loadSubmissions, loadFeedbacks, loadSmtpStatus]);
+  }, [activeTab, loadFeedbacks, loadSmtpStatus]);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -435,7 +454,7 @@ export default function AdminDashboardPage() {
     try {
       await adminService.deleteSubmission(submissionId);
       setBannerMsg('Submission and physical files deleted successfully.');
-      loadSubmissions();
+      setSubmissionRevision((revision) => revision + 1);
       loadStats();
     } catch (err) {
       setBannerErr(err.message || 'Failed to delete submission.');
@@ -885,7 +904,7 @@ export default function AdminDashboardPage() {
                   type="button"
                   className="btn-primary"
                   onClick={handleDownloadZip}
-                  disabled={downloadingZip || submissions.length === 0}
+                  disabled={downloadingZip || totalSubmissions === 0}
                   title={subWeek ? `Download batch ZIP for Week ${subWeek}` : 'Select a week in the filters below to download batch ZIP'}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap' }}
                 >
@@ -902,7 +921,7 @@ export default function AdminDashboardPage() {
                   <select
                     className="filter-select"
                     value={subWeek}
-                    onChange={(e) => setSubWeek(e.target.value)}
+                    onChange={(e) => { setSubWeek(e.target.value); setSubmissionPage(1); }}
                   >
                     <option value="">All Weeks</option>
                     {[...Array(12)].map((_, i) => (
@@ -916,7 +935,7 @@ export default function AdminDashboardPage() {
                   <select
                     className="filter-select"
                     value={subYear}
-                    onChange={(e) => setSubYear(e.target.value)}
+                    onChange={(e) => { setSubYear(e.target.value); setSubmissionPage(1); }}
                   >
                     <option value="">All Years</option>
                     <option value="E1">Engineering 1 (E1)</option>
@@ -931,7 +950,7 @@ export default function AdminDashboardPage() {
                   <select
                     className="filter-select"
                     value={subSection}
-                    onChange={(e) => setSubSection(e.target.value)}
+                    onChange={(e) => { setSubSection(e.target.value); setSubmissionPage(1); }}
                   >
                     <option value="">All Sections</option>
                     {[1, 2, 3, 4, 5, 6].map((s) => (
@@ -947,7 +966,7 @@ export default function AdminDashboardPage() {
                     className="filter-search-input"
                     placeholder="e.g. N210001"
                     value={subStudentId}
-                    onChange={(e) => setSubStudentId(e.target.value)}
+                    onChange={(e) => { setSubStudentId(e.target.value); setSubmissionPage(1); }}
                   />
                 </div>
               </div>
@@ -1061,6 +1080,8 @@ export default function AdminDashboardPage() {
                 </table>
               </div>
             )}
+            {!subLoading && <Pagination currentPage={submissionPage} totalItems={totalSubmissions}
+              itemsPerPage={SUBMISSIONS_PER_PAGE} onPageChange={setSubmissionPage} />}
           </div>
         )}
 

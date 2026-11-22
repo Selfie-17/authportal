@@ -2,13 +2,19 @@ package com.selva.authportal.repository;
 
 import com.selva.authportal.model.Submission;
 import com.selva.authportal.model.YearLevel;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Spring Data JPA repository for Submission entity.
@@ -16,6 +22,19 @@ import java.util.Optional;
  */
 @Repository
 public interface SubmissionRepository extends JpaRepository<Submission, Long>, JpaSpecificationExecutor<Submission> {
+
+    @EntityGraph(attributePaths = {"user", "files"})
+    List<Submission> findDistinctByIdIn(Collection<Long> ids);
+
+    default Page<Submission> findPageWithDetails(Specification<Submission> filters, Pageable pageable) {
+        // Page the root records first. Fetch-joining a collection in the paged query would page in memory.
+        Page<Submission> page = findAll(filters, pageable);
+        if (page.isEmpty()) return page;
+
+        var details = findDistinctByIdIn(page.map(Submission::getId).getContent()).stream()
+                .collect(Collectors.toMap(Submission::getId, Function.identity()));
+        return page.map(submission -> details.getOrDefault(submission.getId(), submission));
+    }
 
     @EntityGraph(attributePaths = {"files"})
     List<Submission> findByUserIdOrderByWeekAscCreatedAtDesc(Long userId);

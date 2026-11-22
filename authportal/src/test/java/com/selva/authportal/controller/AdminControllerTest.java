@@ -146,6 +146,18 @@ class AdminControllerTest {
     }
 
     @Test
+    void shouldReturnFilteredSubmissionPageWithTotal() throws Exception {
+        when(adminService.getSubmissionsPage(2, null, 3, "N21", 1, 12))
+                .thenReturn(new SubmissionPageResponse(List.of(SubmissionResponse.builder().id(42L).build()), 13));
+
+        mockMvc.perform(get("/api/admin/submissions")
+                        .param("week", "2").param("section", "3").param("studentId", "N21").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.submissions[0].id").value(42))
+                .andExpect(jsonPath("$.totalItems").value(13));
+    }
+
+    @Test
     @DisplayName("Should create new user and return 201 Created")
     void shouldCreateUser() throws Exception {
         CreateUserRequest request = CreateUserRequest.builder()

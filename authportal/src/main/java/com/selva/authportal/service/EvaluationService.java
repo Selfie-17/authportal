@@ -16,16 +16,18 @@ import com.selva.authportal.repository.TeacherFeedbackRepository;
 import com.selva.authportal.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -52,6 +54,9 @@ public class EvaluationService {
     private final com.selva.authportal.repository.SubmissionRepository submissionRepository;
     private final StorageService storageService;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
+
+    @Autowired(required = false)
+    private TransactionTemplate transactionTemplate;
 
     // Regex for parsing week identifier e.g. "week-01", "week-2", "Week 5", "week_10", "1"
     private static final Pattern WEEK_NUMBER_PATTERN = Pattern.compile("(?i)(?:week[_-]?0*(\\d+)|\\b(\\d+)\\b)");
@@ -817,8 +822,26 @@ public class EvaluationService {
     /**
      * Streams the student's uploaded PDF report for inline browser viewing.
      */
-    @Transactional(readOnly = true)
     public SubmissionService.DownloadableFile loadStudentPdf(String studentId, String week) {
+        long start = System.nanoTime();
+        var file = transactionTemplate == null ? findStudentPdfMetadata(studentId, week)
+                : transactionTemplate.execute(status -> findStudentPdfMetadata(studentId, week));
+        long storageStart = System.nanoTime();
+        try {
+            InputStream stream = storageService.openStream(file.storageKey());
+            return new SubmissionService.DownloadableFile(new InputStreamResource(stream), file.filename(), file.contentType());
+        } catch (java.io.FileNotFoundException e) {
+            throw new ResourceNotFoundException("PDF file not found in storage with key: " + file.storageKey());
+        } catch (IOException e) {
+            throw new IllegalStateException("Could not read PDF from storage: " + file.filename(), e);
+        } finally {
+            log.info("download_timing type=evaluation_pdf metadata_ms={} storage_open_ms={}",
+                    TimeUnit.NANOSECONDS.toMillis(storageStart - start),
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - storageStart));
+        }
+    }
+
+    private SubmissionService.DownloadMetadata findStudentPdfMetadata(String studentId, String week) {
         String normalizedId = studentId.trim().toUpperCase();
         WeekInfo weekInfo = normalizeWeek(week);
 
@@ -859,20 +882,10 @@ public class EvaluationService {
 
         String storageKey = pdfFile.getEffectiveStorageKey();
 
-        InputStream inputStream;
-        try {
-            inputStream = storageService.openStream(storageKey);
-        } catch (java.io.FileNotFoundException e) {
-            throw new ResourceNotFoundException("PDF file not found in storage with key: " + storageKey);
-        } catch (IOException e) {
-            throw new IllegalStateException("Could not read PDF from storage: " + pdfFile.getOriginalFilename(), e);
-        }
-
         log.info("Authorized PDF download studentId={} week={} submissionId={} storageKey={} type=pdf",
                 normalizedId, weekInfo.displayName(), matchingSubmission.getId(), storageKey);
 
-        Resource resource = new InputStreamResource(inputStream);
-        return new SubmissionService.DownloadableFile(resource, pdfFile.getOriginalFilename(), "application/pdf");
+        return new SubmissionService.DownloadMetadata(storageKey, pdfFile.getOriginalFilename(), "application/pdf");
     }
 
     /**

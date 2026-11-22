@@ -21,6 +21,7 @@ function PdfPageCanvas({ pdfDoc, pageNumber, scale }) {
     if (!pdfDoc || !canvasRef.current) return;
 
     setLoading(true);
+    const renderStart = performance.now();
 
     pdfDoc.getPage(pageNumber).then((page) => {
       if (cancel) return;
@@ -46,7 +47,10 @@ function PdfPageCanvas({ pdfDoc, pageNumber, scale }) {
 
       renderTask.promise
         .then(() => {
-          if (!cancel) setLoading(false);
+          if (!cancel) {
+            setLoading(false);
+            if (pageNumber === 1) console.info('pdf_first_page_timing', { render_ms: Math.round(performance.now() - renderStart) });
+          }
         })
         .catch((err) => {
           if (err?.name !== 'RenderingCancelledException') {
@@ -86,7 +90,6 @@ export default function UploadedPdfViewer({
   report,
 }) {
   const [blobUrl, setBlobUrl] = useState(null);
-  const [pdfBytes, setPdfBytes] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -107,7 +110,6 @@ export default function UploadedPdfViewer({
       const data = await evaluationService.getStudentPdfData(studentId, week, force);
       if (data) {
         setBlobUrl(data.blobUrl);
-        setPdfBytes(data.uint8Array);
       }
     } catch (err) {
       console.error('Failed to load student PDF from storage:', err);
@@ -134,15 +136,14 @@ export default function UploadedPdfViewer({
 
   // Load PDF with PDF.js for pure light canvas rendering
   useEffect(() => {
-    if (!pdfBytes && !blobUrl) return;
+    if (!blobUrl) return;
 
     let cancel = false;
     let loadingTask = null;
 
     try {
-      // Pass Uint8Array binary data directly to prevent worker CORS / blob-fetch issues
-      const source = pdfBytes ? { data: pdfBytes } : { url: blobUrl };
-      loadingTask = pdfjsLib.getDocument(source);
+      const decodeStart = performance.now();
+      loadingTask = pdfjsLib.getDocument({ url: blobUrl });
 
       loadingTask.promise
         .then((loadedPdf) => {
@@ -150,6 +151,7 @@ export default function UploadedPdfViewer({
             setPdfDoc(loadedPdf);
             setNumPages(loadedPdf.numPages);
             setPdfJsError(false);
+            console.info('pdf_decode_timing', { decode_ms: Math.round(performance.now() - decodeStart) });
           }
         })
         .catch((err) => {
@@ -173,7 +175,7 @@ export default function UploadedPdfViewer({
         loadingTask.destroy().catch(() => {});
       }
     };
-  }, [pdfBytes, blobUrl]);
+  }, [blobUrl]);
 
   const handleDownload = () => {
     evaluationService.downloadStudentPdf(studentId, week, sourceFilename);
