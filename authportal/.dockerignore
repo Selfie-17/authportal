@@ -1,0 +1,7 @@
+# Send only the Maven descriptor and production sources to the builder.
+**
+!pom.xml
+!src/
+!src/main/
+!src/main/**
+**/.env*
