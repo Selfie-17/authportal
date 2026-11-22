@@ -1,5 +1,6 @@
 import React from 'react';
 import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 /**
  * Common HTML entities and special characters mapping for mathematical notation.

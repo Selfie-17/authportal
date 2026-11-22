@@ -48,7 +48,7 @@ public class UserDatabaseLookupService {
      * @param normalizedEmail Lowercase, trimmed email address
      * @return Optional containing the User if found, empty otherwise
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, timeoutString = "${DB_LOGIN_QUERY_TIMEOUT_SECONDS:5}")
     public Optional<User> findUserByEmail(String normalizedEmail) {
         if (normalizedEmail == null) {
             return Optional.empty();

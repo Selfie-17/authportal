@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useMemo } from 'react';
 import Navbar from '../components/Navbar';
-import TeacherReportView from '../components/TeacherReportView';
 import ReportFilters from '../components/teacher/ReportFilters';
 import StudentScoreTable from '../components/teacher/StudentScoreTable';
 import { submissionService } from '../services/submissionService';
@@ -8,6 +7,8 @@ import { evaluationService } from '../services/evaluationService';
 import { adminService } from '../services/adminService';
 import { deriveEngineering, deriveSection } from '../utils/studentDataHelper';
 import '../styles/portal.css';
+
+const TeacherReportView = lazy(() => import('../components/TeacherReportView'));
 
 export default function TeacherSubmissionsPage() {
   // Selected report for single-student full report viewer (TeacherReportView)
@@ -306,14 +307,16 @@ export default function TeacherSubmissionsPage() {
       <div className="portal-layout">
         <Navbar />
         <main className="portal-container">
-          <TeacherReportView
-            studentId={selectedReport.studentId}
-            week={selectedReport.week}
-            initialProvider={selectedReport.provider}
-            onBack={() => setSelectedReport(null)}
-            onFeedbackUpdated={handleFeedbackUpdated}
-            onReportDeleted={handleReportDeletedFromView}
-          />
+          <Suspense fallback={<p role="status">Loading student report…</p>}>
+            <TeacherReportView
+              studentId={selectedReport.studentId}
+              week={selectedReport.week}
+              initialProvider={selectedReport.provider}
+              onBack={() => setSelectedReport(null)}
+              onFeedbackUpdated={handleFeedbackUpdated}
+              onReportDeleted={handleReportDeletedFromView}
+            />
+          </Suspense>
         </main>
       </div>
     );

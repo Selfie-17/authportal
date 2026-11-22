@@ -16,7 +16,6 @@ export default function LoginForm() {
 
   const [errors, setErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e) => {
@@ -50,7 +49,6 @@ export default function LoginForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setGeneralError('');
-    setSuccessMessage('');
 
     if (!validate()) {
       return;
@@ -67,20 +65,13 @@ export default function LoginForm() {
       // Save token and user details according to backend architecture
       authService.saveAuth(response);
 
-      const user = response.user;
-      setSuccessMessage(
-        `Signed in successfully! Redirecting...`
-      );
-
-      setTimeout(() => {
-        if (user?.role === 'ADMIN') {
-          navigate('/admin');
-        } else if (user?.role === 'TEACHER') {
-          navigate('/teacher');
-        } else {
-          navigate('/student');
-        }
-      }, 500);
+      if (response.user?.role === 'ADMIN') {
+        navigate('/admin');
+      } else if (response.user?.role === 'TEACHER') {
+        navigate('/teacher');
+      } else {
+        navigate('/student');
+      }
     } catch (err) {
       if (err.status === 401 || err.code === 'INVALID_CREDENTIALS') {
         setGeneralError('Invalid email or password. Please verify your credentials.');
@@ -108,14 +99,6 @@ export default function LoginForm() {
         <div className="alert-error" role="alert">
           <span className="notice-icon" aria-hidden="true">⚠️</span>
           <span>{generalError}</span>
-        </div>
-      )}
-
-      {/* Success Alert */}
-      {successMessage && (
-        <div className="alert-success" role="status">
-          <span className="notice-icon" aria-hidden="true">✓</span>
-          <span>{successMessage}</span>
         </div>
       )}
 

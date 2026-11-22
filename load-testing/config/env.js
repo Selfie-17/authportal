@@ -5,27 +5,27 @@
  */
 
 export const TARGET_ENV = __ENV.TARGET_ENV || 'local';
+export const BASE_URL = __ENV.BASE_URL || (TARGET_ENV === 'staging' || TARGET_ENV === 'production' ? 'https://authportal-5gnm.onrender.com' : 'http://localhost:8080');
 
 const configs = {
   local: {
-    baseUrl: __ENV.BASE_URL || 'http://localhost:8080',
+    baseUrl: BASE_URL,
     timeout: '15s',
     allowMutations: true,
   },
   staging: {
-    baseUrl: __ENV.BASE_URL || 'https://authportal-backend.onrender.com',
+    baseUrl: BASE_URL,
     timeout: '30s',
     allowMutations: false, // Prevents unintended data mutation on shared staging
   },
   production: {
-    baseUrl: __ENV.BASE_URL || 'https://authportal-backend.onrender.com',
+    baseUrl: BASE_URL,
     timeout: '30s',
     allowMutations: false, // Strict safety guard
   }
 };
 
 export const currentConfig = configs[TARGET_ENV] || configs.local;
-export const BASE_URL = currentConfig.baseUrl;
 
 export function getHeaders(token = null) {
   const headers = {

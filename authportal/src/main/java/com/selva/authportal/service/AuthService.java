@@ -24,6 +24,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
 /**
  * Service orchestrating user registration, local authentication, and session token issuance.
  */
@@ -146,11 +149,12 @@ public class AuthService {
 
         // 1. Locate user via isolated transactional query; connection is checked out for findByEmail
         // and released immediately when UserDatabaseLookupService returns.
-        User user = userDatabaseLookupService.findUserByEmail(normalizedEmail)
-                .orElse(null);
+        User user = timeLoginStep("database lookup", () ->
+                userDatabaseLookupService.findUserByEmail(normalizedEmail).orElse(null));
 
         // 2. Verify password (CPU-bound BCrypt execution occurs with ZERO database connections held)
-        if (user == null || user.getPassword() == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        if (user == null || user.getPassword() == null || !timeLoginStep("password verification", () ->
+                passwordEncoder.matches(request.getPassword(), user.getPassword()))) {
             if (loginRateLimiter != null) {
                 loginRateLimiter.recordFailure(normalizedEmail);
             }
@@ -183,6 +187,18 @@ public class AuthService {
                 .expiresIn(jwtService.getExpirationMs() / 1000)
                 .user(UserResponse.fromEntity(user))
                 .build();
+    }
+
+    private <T> T timeLoginStep(String step, Supplier<T> operation) {
+        long start = System.nanoTime();
+        try {
+            return operation.get();
+        } finally {
+            long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            if (elapsedMs >= 1000) {
+                log.warn("Slow password login step '{}': {} ms", step, elapsedMs);
+            }
+        }
     }
 
     /**

@@ -29,21 +29,33 @@ export const WORKLOAD_MODE = (__ENV.WORKLOAD_MODE || 'student-only').toLowerCase
 
 const users = JSON.parse(open('../data/users.json'));
 
-export const options = (WORKLOAD_MODE === 'diagnostic') ? {
-  stages: [
-    { duration: '5s', target: 3 },   // Ramp to 3 VUs
-    { duration: '25s', target: 3 },  // Hold at 3 VUs (below HikariCP pool limit of 5)
-    { duration: '5s', target: 0 },   // Ramp-down
-  ],
-  thresholds: standardThresholds,
-} : {
-  stages: [
-    { duration: '30s', target: 25 }, // Warm-up ramp to 25 VUs
-    { duration: '1m', target: 50 },  // Sustained realistic traffic scaling to 50 VUs
-    { duration: '15s', target: 0 },  // Ramp-down
-  ],
-  thresholds: standardThresholds,
-};
+export const options = (() => {
+  if (__ENV.VUS && __ENV.DURATION) {
+    return {
+      vus: parseInt(__ENV.VUS, 10),
+      duration: __ENV.DURATION,
+      thresholds: standardThresholds,
+    };
+  }
+  if (WORKLOAD_MODE === 'diagnostic') {
+    return {
+      stages: [
+        { duration: '5s', target: 3 },   // Ramp to 3 VUs
+        { duration: '25s', target: 3 },  // Hold at 3 VUs (below HikariCP pool limit of 5)
+        { duration: '5s', target: 0 },   // Ramp-down
+      ],
+      thresholds: standardThresholds,
+    };
+  }
+  return {
+    stages: [
+      { duration: '30s', target: 25 }, // Warm-up ramp to 25 VUs
+      { duration: '1m', target: 50 },  // Sustained realistic traffic scaling to 50 VUs
+      { duration: '15s', target: 0 },  // Ramp-down
+    ],
+    thresholds: standardThresholds,
+  };
+})();
 
 export function setup() {
   if (WORKLOAD_MODE === 'blended') {
